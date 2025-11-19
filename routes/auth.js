@@ -87,6 +87,7 @@ router.post('/verify-otp', async (req, res) => {
 
     user.verified = true;
     user.otp = undefined;
+    user.otpExpiry = undefined;
     await user.save();
 
     res.json({ message: 'OTP verified successfully' });
@@ -98,7 +99,7 @@ router.post('/verify-otp', async (req, res) => {
 // Send OTP for login
 router.post('/login/send-otp', async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, password } = req.body;
     const user = await User.findOne({ email });
 
     if (!user) {
@@ -107,6 +108,15 @@ router.post('/login/send-otp', async (req, res) => {
 
     if (!user.password) {
       return res.status(400).json({ error: 'Please use social login for this account' });
+    }
+
+    if (!user.verified) {
+      return res.status(400).json({ error: 'Please complete registration OTP verification first' });
+    }
+
+    const validPassword = await user.comparePassword(password || '');
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     // Generate OTP
@@ -130,15 +140,24 @@ router.post('/login/send-otp', async (req, res) => {
 // Login with OTP
 router.post('/login', async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { email, password, otp } = req.body;
     const user = await User.findOne({ email });
 
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     if (!user.password) {
       return res.status(401).json({ error: 'Please use social login for this account' });
+    }
+
+    const validPassword = await user.comparePassword(password || '');
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    if (!user.verified) {
+      return res.status(401).json({ error: 'Please verify your account first' });
     }
 
     // Verify OTP
@@ -157,7 +176,6 @@ router.post('/login', async (req, res) => {
     // Clear OTP after successful login
     user.otp = undefined;
     user.otpExpiry = undefined;
-    user.verified = true; // Mark as verified if logging in with OTP
     await user.save();
 
     const token = jwt.sign(

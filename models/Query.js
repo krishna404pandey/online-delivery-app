@@ -72,3 +72,5 @@ const querySchema = new mongoose.Schema({
 
 module.exports = mongoose.model('Query', querySchema);
 
+
+

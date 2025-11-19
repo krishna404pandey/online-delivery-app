@@ -238,8 +238,13 @@ function resendOTP() {
 // Send OTP for login
 async function sendLoginOTP() {
     const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
     if (!email) {
         showToast('Please enter your email first');
+        return;
+    }
+    if (!password) {
+        showToast('Please enter your password');
         return;
     }
 
@@ -249,14 +254,17 @@ async function sendLoginOTP() {
     const submitButton = document.getElementById('loginSubmitButton');
 
     sendButton.disabled = true;
+    const defaultLabel = '<i class="fas fa-paper-plane"></i> Send OTP';
+    const resendLabel = '<i class="fas fa-redo"></i> Resend OTP';
     sendButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
     statusSpan.textContent = '';
+    let otpSentSuccessfully = false;
 
     try {
         const res = await fetch(`${API_BASE}/auth/login/send-otp`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email })
+            body: JSON.stringify({ email, password })
         });
 
         const data = await res.json();
@@ -266,7 +274,8 @@ async function sendLoginOTP() {
             }
             otpGroup.style.display = 'block';
             submitButton.disabled = false;
-            sendButton.style.display = 'none';
+            otpSentSuccessfully = true;
+            sendButton.innerHTML = resendLabel;
             statusSpan.textContent = 'OTP sent! Check your email.';
             statusSpan.style.color = '#4caf50';
             document.getElementById('loginOTP').focus();
@@ -281,7 +290,9 @@ async function sendLoginOTP() {
         statusSpan.style.color = '#f44336';
     } finally {
         sendButton.disabled = false;
-        sendButton.innerHTML = '<i class="fas fa-paper-plane"></i> Send OTP';
+        if (!otpSentSuccessfully) {
+            sendButton.innerHTML = defaultLabel;
+        }
     }
 }
 
@@ -289,8 +300,13 @@ async function sendLoginOTP() {
 async function handleLogin(e) {
     e.preventDefault();
     const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
     const otp = document.getElementById('loginOTP').value;
 
+    if (!password) {
+        showToast('Please enter your password');
+        return;
+    }
     if (!otp) {
         showToast('Please enter OTP');
         return;
@@ -300,7 +316,7 @@ async function handleLogin(e) {
         const res = await fetch(`${API_BASE}/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, otp })
+            body: JSON.stringify({ email, password, otp })
         });
 
         const data = await res.json();
@@ -315,6 +331,7 @@ async function handleLogin(e) {
             document.getElementById('loginOTPGroup').style.display = 'none';
             document.getElementById('loginSubmitButton').disabled = true;
             document.getElementById('sendOTPButton').style.display = 'block';
+            document.getElementById('sendOTPButton').innerHTML = '<i class="fas fa-paper-plane"></i> Send OTP';
             document.getElementById('otpStatus').textContent = '';
             
             if (currentUser.role === 'retailer' || currentUser.role === 'wholesaler') {
