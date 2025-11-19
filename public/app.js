@@ -38,17 +38,33 @@ function initializeSocket() {
     });
 
     socket.on('order-status-updated', (order) => {
-        showToast(`Order #${(order._id || order.id || '').toString().substring(0, 8)} status updated to ${order.status.toUpperCase()}!`);
-        // Reload orders if on orders page
+        const orderIdShort = (order._id || order.id || '').toString().substring(0, 8);
+        const statusUpper = (order.status || 'unknown').toUpperCase();
+        showToast(`Order #${orderIdShort} status updated to ${statusUpper}!`);
+        // Reload orders if on orders page (for customers)
         if (document.getElementById('ordersContent')) {
             loadOrders();
+        }
+        // Reload dashboard orders if on dashboard (for retailers/wholesalers)
+        if (document.getElementById('dashboardContent') && currentUser && (currentUser.role === 'retailer' || currentUser.role === 'wholesaler')) {
+            const activeTab = document.querySelector('.tab-btn.active');
+            if (activeTab && (activeTab.textContent.includes('Orders') || activeTab.textContent.includes('Dashboard'))) {
+                loadDashboardOrders();
+            }
         }
     });
 
     socket.on('order-update', (order) => {
-        // General order update - reload if on orders page
+        // General order update - reload if on orders page (for customers)
         if (document.getElementById('ordersContent')) {
             loadOrders();
+        }
+        // Reload dashboard orders if on dashboard (for retailers/wholesalers)
+        if (document.getElementById('dashboardContent') && currentUser && (currentUser.role === 'retailer' || currentUser.role === 'wholesaler')) {
+            const activeTab = document.querySelector('.tab-btn.active');
+            if (activeTab && (activeTab.textContent.includes('Orders') || activeTab.textContent.includes('Dashboard'))) {
+                loadDashboardOrders();
+            }
         }
     });
 
@@ -90,6 +106,10 @@ function checkAuth() {
             if (user._id || user.id) {
                 currentUser = user;
                 updateNav();
+                // Join socket room for real-time updates
+                if (socket && socket.connected && (currentUser._id || currentUser.id)) {
+                    socket.emit('join-room', currentUser._id || currentUser.id);
+                }
                 if (currentUser.role === 'retailer' || currentUser.role === 'wholesaler') {
                     showSection('dashboard');
                 } else {
@@ -175,8 +195,15 @@ async function handleRegister(e) {
         const data = await res.json();
         if (res.ok) {
             localStorage.setItem('pendingEmail', userData.email);
-            localStorage.setItem('pendingOTP', data.otp);
-            showToast(`OTP sent! Your OTP is: ${data.otp}`);
+            if (data.otp) {
+                // OTP returned because email failed
+                localStorage.setItem('pendingOTP', data.otp);
+                showToast(`OTP: ${data.otp} (Email not configured - shown for testing)`);
+            } else {
+                // Email sent successfully - clear any old OTP from storage
+                localStorage.removeItem('pendingOTP');
+                showToast('OTP sent! Check your email (and spam folder).');
+            }
             document.getElementById('otp-verify').style.display = 'block';
             document.getElementById('register').style.display = 'none';
         } else {
@@ -229,9 +256,17 @@ function resendOTP() {
     .then(res => res.json())
     .then(data => {
         if (data.otp) {
+            // OTP returned because email failed
             localStorage.setItem('pendingOTP', data.otp);
-            showToast(`OTP resent! Your OTP is: ${data.otp}`);
+            showToast(`OTP: ${data.otp} (Email failed - check server console)`);
+        } else {
+            // Email sent successfully
+            localStorage.removeItem('pendingOTP');
+            showToast('OTP resent! Check your email (and spam folder).');
         }
+    })
+    .catch(error => {
+        showToast('Error resending OTP: ' + error.message);
     });
 }
 
@@ -270,14 +305,22 @@ async function sendLoginOTP() {
         const data = await res.json();
         if (res.ok) {
             if (data.otp) {
-                console.log(`OTP for ${email}: ${data.otp} (Development mode)`);
+                // OTP was returned because email failed
+                console.log(`⚠️  OTP for ${email}: ${data.otp}`);
+                console.log('Email is not configured or failed. Check server console for details.');
+                statusSpan.textContent = `OTP: ${data.otp} (Email failed - check server console)`;
+                statusSpan.style.color = '#ff9800';
+                showToast('OTP shown in status (email not configured)');
+            } else {
+                // Email was sent successfully
+                statusSpan.textContent = 'OTP sent! Check your email (and spam folder).';
+                statusSpan.style.color = '#4caf50';
+                showToast('OTP sent to your email!');
             }
             otpGroup.style.display = 'block';
             submitButton.disabled = false;
             otpSentSuccessfully = true;
             sendButton.innerHTML = resendLabel;
-            statusSpan.textContent = 'OTP sent! Check your email.';
-            statusSpan.style.color = '#4caf50';
             document.getElementById('loginOTP').focus();
         } else {
             showToast(data.error || 'Failed to send OTP');
@@ -1058,7 +1101,9 @@ function displayOrders(orders) {
                             <p>${createdAt.toLocaleString()}</p>
                             ${deliveryDetails.trackingNumber ? `<p><strong>Tracking:</strong> ${deliveryDetails.trackingNumber}</p>` : ''}
                         </div>
-                        <div class="order-status ${order.status || 'pending'}">${(order.status || 'pending').toUpperCase()}</div>
+                        <div class="order-status ${order.status || 'pending'}" style="font-size: 1.1rem; font-weight: bold; padding: 0.5rem 1rem; border-radius: 5px;">
+                            ${(order.status || 'pending').toUpperCase()}
+                        </div>
                     </div>
                     <div class="order-tracking">
                         <h4>Order Tracking</h4>
@@ -1068,11 +1113,18 @@ function displayOrders(orders) {
                                     <strong>${step.label}</strong>
                                     ${idx === 1 && order.status === 'processing' && deliveryDetails.estimatedDelivery ? 
                                         `<p style="font-size: 0.9rem; color: #666;">Est. delivery: ${new Date(deliveryDetails.estimatedDelivery).toLocaleDateString()}</p>` : ''}
+                                    ${idx === 2 && order.status === 'in_transit' && deliveryDetails.estimatedDelivery ? 
+                                        `<p style="font-size: 0.9rem; color: #666;">Est. delivery: ${new Date(deliveryDetails.estimatedDelivery).toLocaleDateString()}</p>` : ''}
                                 </div>
                             `).join('')}
                         </div>
                     </div>
                     <div style="margin-top: 1rem;">
+                        <p style="margin-bottom: 0.5rem;"><strong>Current Status:</strong> 
+                            <span class="order-status ${order.status || 'pending'}" style="font-size: 1rem; padding: 0.3rem 0.8rem; border-radius: 4px; margin-left: 0.5rem;">
+                                ${(order.status || 'pending').toUpperCase()}
+                            </span>
+                        </p>
                         ${items.length > 0 ? items.map(item => `
                             <p>${item.productName || 'Product'} - ${item.quantity || 0} x ₹${(item.price || 0).toFixed(2)}</p>
                         `).join('') : '<p>No items</p>'}
@@ -1353,7 +1405,8 @@ async function loadDashboardOrders() {
     }
 }
 
-async function updateOrderStatus(orderId, status) {
+// Make updateOrderStatus globally accessible for inline handlers
+window.updateOrderStatus = async function(orderId, status) {
     try {
         const res = await fetch(`${API_BASE}/orders/${orderId}/status`, {
             method: 'PUT',
@@ -1372,14 +1425,19 @@ async function updateOrderStatus(orderId, status) {
             if (currentUser && (currentUser.role === 'retailer' || currentUser.role === 'wholesaler')) {
                 loadDashboardOrders();
             }
+            // Also reload customer orders if on orders page
+            if (currentUser && currentUser.role === 'customer' && document.getElementById('ordersContent')) {
+                loadOrders();
+            }
         } else {
             showToast(data.error || 'Error updating order status');
+            console.error('Order status update failed:', data);
         }
     } catch (error) {
         console.error('Error updating order status:', error);
         showToast('Error: ' + (error.message || 'Failed to update order status'));
     }
-}
+};
 
 function loadAnalytics() {
     const content = document.getElementById('dashboardContent');

@@ -53,13 +53,15 @@ router.post('/register', async (req, res) => {
     // Send OTP via email
     const emailSent = await sendOTP(email, otp);
     if (!emailSent) {
-      console.log(`OTP for ${email}: ${otp}`); // Fallback if email fails
+      console.log(`\n📧 OTP for ${email}: ${otp}`);
+      console.log('(Email not sent - check console above for details)\n');
     }
 
     res.json({ 
-      message: 'Registration successful. OTP sent to email.',
+      message: emailSent ? 'Registration successful. OTP sent to email.' : 'Registration successful. OTP shown in console.',
       userId: newUser._id,
-      emailSent
+      emailSent,
+      otp: emailSent ? undefined : otp // Only show OTP in response if email failed
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -128,9 +130,16 @@ router.post('/login/send-otp', async (req, res) => {
     // Send OTP via email
     const otpSent = await sendOTP(user.email, otp);
     if (otpSent) {
-      res.json({ message: 'OTP sent to your email', otp: process.env.NODE_ENV === 'development' ? otp : undefined });
+      res.json({ 
+        message: 'OTP sent to your email. Please check your inbox (and spam folder).',
+        otp: undefined // Don't send OTP in response if email was sent successfully
+      });
     } else {
-      res.json({ message: 'OTP generated (check console in development)', otp: otp });
+      console.log(`\n📧 Login OTP for ${user.email}: ${otp}\n`);
+      res.json({ 
+        message: 'OTP generated. Check console/server logs for OTP code (email not configured or failed).',
+        otp: otp // Send OTP in response only if email failed
+      });
     }
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -214,13 +223,13 @@ router.post('/resend-otp', async (req, res) => {
 
     const emailSent = await sendOTP(email, otp);
     if (!emailSent) {
-      console.log(`OTP for ${email}: ${otp}`);
+      console.log(`\n📧 Resend OTP for ${email}: ${otp}\n`);
     }
 
     res.json({ 
-      message: 'OTP resent',
+      message: emailSent ? 'OTP resent to your email. Please check your inbox (and spam folder).' : 'OTP regenerated. Check console/server logs for OTP code.',
       emailSent,
-      otp: process.env.NODE_ENV === 'development' ? otp : undefined
+      otp: emailSent ? undefined : otp // Only send OTP in response if email failed
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

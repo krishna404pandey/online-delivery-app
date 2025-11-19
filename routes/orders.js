@@ -184,15 +184,21 @@ router.put('/:id/status', authenticateToken, authorizeRole('retailer', 'wholesal
 
     // Check authorization - retailer can only update orders for their products
     if (req.user.role === 'retailer') {
-      if (!order.retailerId || order.retailerId.toString() !== req.user.userId) {
-        return res.status(403).json({ error: 'Not authorized to update this order' });
+      const retailerIdStr = order.retailerId ? order.retailerId.toString() : null;
+      const userIdStr = req.user.userId ? req.user.userId.toString() : null;
+      if (!retailerIdStr || retailerIdStr !== userIdStr) {
+        console.error(`Authorization failed - Retailer ID: ${retailerIdStr}, User ID: ${userIdStr}`);
+        return res.status(403).json({ error: 'Not authorized to update this order. This order does not belong to you.' });
       }
     }
 
     // Check authorization - wholesaler can only update orders for their products
     if (req.user.role === 'wholesaler') {
-      if (!order.wholesalerId || order.wholesalerId.toString() !== req.user.userId) {
-        return res.status(403).json({ error: 'Not authorized to update this order' });
+      const wholesalerIdStr = order.wholesalerId ? order.wholesalerId.toString() : null;
+      const userIdStr = req.user.userId ? req.user.userId.toString() : null;
+      if (!wholesalerIdStr || wholesalerIdStr !== userIdStr) {
+        console.error(`Authorization failed - Wholesaler ID: ${wholesalerIdStr}, User ID: ${userIdStr}`);
+        return res.status(403).json({ error: 'Not authorized to update this order. This order does not belong to you.' });
       }
     }
 
