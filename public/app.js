@@ -773,7 +773,21 @@ function removeFromCart(index) {
 
 function updateCartCount() {
     const count = cart.reduce((sum, item) => sum + item.quantity, 0);
-    document.getElementById('cartCount').textContent = count;
+    const cartCountElement = document.getElementById('cartCount');
+    if (cartCountElement) {
+        cartCountElement.textContent = count;
+        cartCountElement.setAttribute('data-count', count);
+        // Show/hide based on count
+        if (count === 0 || count === '0') {
+            cartCountElement.style.display = 'none';
+            cartCountElement.classList.remove('show');
+        } else {
+            cartCountElement.style.display = 'flex';
+            cartCountElement.classList.add('show');
+        }
+        // Force repaint
+        cartCountElement.offsetHeight;
+    }
 }
 
 function placeOrder() {
