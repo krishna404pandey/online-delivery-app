@@ -136,6 +136,22 @@ function updateNav() {
 
 // Section navigation
 function showSection(sectionId) {
+    // Clean up any existing map when switching sections
+    const existingContainer = document.getElementById('locationPickerContainer');
+    if (existingContainer) {
+        existingContainer.remove();
+    }
+    const existingMap = document.getElementById('locationPickerMap');
+    if (existingMap) {
+        existingMap.remove();
+        if (map) {
+            map.remove();
+            map = null;
+        }
+    }
+    locationMarker = null;
+    userLocation = null;
+    
     document.querySelectorAll('.section').forEach(section => {
         section.classList.remove('active');
         section.style.display = 'none';
@@ -813,6 +829,11 @@ function placeOrder() {
         <div class="form-group">
             <label>Delivery Address</label>
             <textarea id="deliveryAddress" placeholder="Enter delivery address">${currentUser.address || ''}</textarea>
+            <button type="button" class="btn-secondary" onclick="openLocationPicker('order')" style="margin-top: 0.5rem;">
+                <i class="fas fa-map-marker-alt"></i> Pin Location on Map
+            </button>
+            <input type="hidden" id="orderLocation">
+            <div id="orderLocationDisplay" style="margin-top:0.5rem; font-size:0.9rem; color:#666;"></div>
         </div>
         <button class="btn-primary" onclick="confirmOrder()">Place Order</button>
     `;
@@ -866,6 +887,22 @@ function closePaymentModal() {
     if (modal) {
         modal.style.display = 'none';
     }
+    
+    // Clean up map if it exists
+    const existingContainer = document.getElementById('locationPickerContainer');
+    if (existingContainer) {
+        existingContainer.remove();
+    }
+    const existingMap = document.getElementById('locationPickerMap');
+    if (existingMap) {
+        existingMap.remove();
+        if (map) {
+            map.remove();
+            map = null;
+        }
+    }
+    locationMarker = null;
+    userLocation = null;
 }
 
 // Close modal when clicking outside
@@ -1827,70 +1864,96 @@ async function loadProfile() {
 let map = null;
 let locationMarker = null;
 let userLocation = null;
+let locationPickerContext = 'register'; // 'register' or 'order'
 
-function openLocationPicker() {
+// Reverse geocoding function to convert lat/lng to address
+async function reverseGeocode(lat, lng) {
+    try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`, {
+            headers: {
+                'User-Agent': 'LiveMart/1.0' // Required by Nominatim
+            }
+        });
+        const data = await response.json();
+        
+        if (data && data.address) {
+            const addr = data.address;
+            const addressParts = [];
+            
+            // Build address from available components
+            if (addr.house_number) addressParts.push(addr.house_number);
+            if (addr.road) addressParts.push(addr.road);
+            if (addr.neighbourhood || addr.suburb) addressParts.push(addr.neighbourhood || addr.suburb);
+            if (addr.city || addr.town || addr.village) addressParts.push(addr.city || addr.town || addr.village);
+            if (addr.state) addressParts.push(addr.state);
+            if (addr.postcode) addressParts.push(addr.postcode);
+            if (addr.country) addressParts.push(addr.country);
+            
+            return addressParts.join(', ') || data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        }
+        return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    } catch (error) {
+        console.error('Reverse geocoding error:', error);
+        return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    }
+}
+
+function openLocationPicker(context = 'register') {
+    locationPickerContext = context;
+    
+    // Check if there's already a selected location
+    let initialLat, initialLng;
+    let useExistingLocation = false;
+    
+    if (context === 'register') {
+        const registerLocationInput = document.getElementById('registerLocation');
+        if (registerLocationInput && registerLocationInput.value) {
+            try {
+                const existingLocation = JSON.parse(registerLocationInput.value);
+                if (existingLocation.lat && existingLocation.lng) {
+                    initialLat = existingLocation.lat;
+                    initialLng = existingLocation.lng;
+                    useExistingLocation = true;
+                }
+            } catch (e) {
+                // Invalid location data, will use geolocation
+            }
+        }
+    } else if (context === 'order') {
+        const orderLocationInput = document.getElementById('orderLocation');
+        if (orderLocationInput && orderLocationInput.value) {
+            try {
+                const existingLocation = JSON.parse(orderLocationInput.value);
+                if (existingLocation.lat && existingLocation.lng) {
+                    initialLat = existingLocation.lat;
+                    initialLng = existingLocation.lng;
+                    useExistingLocation = true;
+                }
+            } catch (e) {
+                // Invalid location data, will use geolocation
+            }
+        }
+    }
+    
+    // If we have an existing location, use it directly
+    if (useExistingLocation) {
+        userLocation = { lat: initialLat, lng: initialLng };
+        showMapWithLocation(initialLat, initialLng, context);
+        return;
+    }
+    
+    // Otherwise, get current geolocation
     if (!navigator.geolocation) {
         showToast('Geolocation is not supported by your browser');
         return;
     }
 
     navigator.geolocation.getCurrentPosition(
-        (position) => {
+        async (position) => {
             const lat = position.coords.latitude;
             const lng = position.coords.longitude;
             userLocation = { lat, lng };
-            
-            // Initialize Leaflet map
-            const mapDiv = document.createElement('div');
-            mapDiv.id = 'locationPickerMap';
-            mapDiv.style.width = '100%';
-            mapDiv.style.height = '400px';
-            mapDiv.style.borderRadius = '10px';
-            mapDiv.style.marginTop = '1rem';
-            
-            const existingMap = document.getElementById('locationPickerMap');
-            if (existingMap) {
-                existingMap.remove();
-                if (map) {
-                    map.remove();
-                    map = null;
-                }
-            }
-            
-            document.getElementById('locationDisplay').parentElement.appendChild(mapDiv);
-            
-            // Initialize Leaflet map with OpenStreetMap tiles
-            map = L.map('locationPickerMap').setView([lat, lng], 15);
-            
-            // Add OpenStreetMap tile layer
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors',
-                maxZoom: 19
-            }).addTo(map);
-
-            // Add draggable marker
-            locationMarker = L.marker([lat, lng], {
-                draggable: true,
-                title: 'Your Location'
-            }).addTo(map);
-
-            // Handle map click
-            map.on('click', (e) => {
-                const newLocation = { lat: e.latlng.lat, lng: e.latlng.lng };
-                locationMarker.setLatLng([newLocation.lat, newLocation.lng]);
-                userLocation = newLocation;
-                updateLocationDisplay();
-            });
-
-            // Handle marker drag
-            locationMarker.on('dragend', (e) => {
-                const pos = locationMarker.getLatLng();
-                userLocation = { lat: pos.lat, lng: pos.lng };
-                updateLocationDisplay();
-            });
-
-            updateLocationDisplay();
-            showToast('Click on map or drag marker to set your location');
+            showMapWithLocation(lat, lng, context);
         },
         (error) => {
             showToast('Error getting location: ' + error.message);
@@ -1898,11 +1961,195 @@ function openLocationPicker() {
     );
 }
 
-function updateLocationDisplay() {
-    if (userLocation) {
-        document.getElementById('registerLocation').value = JSON.stringify(userLocation);
-        document.getElementById('locationDisplay').innerHTML = 
-            `<i class="fas fa-map-marker-alt"></i> Location set: ${userLocation.lat.toFixed(6)}, ${userLocation.lng.toFixed(6)}`;
+function showMapWithLocation(lat, lng, context) {
+    // Set user location
+    userLocation = { lat, lng };
+    
+    // Determine where to append the map based on context
+    let parentElement;
+    let locationDisplayElement;
+    
+    if (context === 'register') {
+        locationDisplayElement = document.getElementById('locationDisplay');
+        parentElement = locationDisplayElement ? locationDisplayElement.parentElement : null;
+    } else if (context === 'order') {
+        locationDisplayElement = document.getElementById('orderLocationDisplay');
+        parentElement = locationDisplayElement ? locationDisplayElement.parentElement : null;
+        
+        // Fallback: if orderLocationDisplay doesn't exist, find the delivery address parent
+        if (!parentElement) {
+            const deliveryAddress = document.getElementById('deliveryAddress');
+            if (deliveryAddress && deliveryAddress.parentElement) {
+                parentElement = deliveryAddress.parentElement;
+            }
+        }
+    }
+    
+    if (!parentElement) {
+        showToast('Could not find location display element');
+        return;
+    }
+    
+    // Remove existing map container if it exists
+    const existingContainer = document.getElementById('locationPickerContainer');
+    if (existingContainer) {
+        existingContainer.remove();
+        if (map) {
+            map.remove();
+            map = null;
+        }
+    }
+    
+    // Create container for map and button
+    const mapContainer = document.createElement('div');
+    mapContainer.id = 'locationPickerContainer';
+    mapContainer.style.marginTop = '1rem';
+    
+    // Initialize Leaflet map div
+    const mapDiv = document.createElement('div');
+    mapDiv.id = 'locationPickerMap';
+    mapDiv.style.width = '100%';
+    mapDiv.style.height = '400px';
+    mapDiv.style.borderRadius = '10px';
+    mapDiv.style.marginBottom = '0.5rem';
+    
+    // Create confirm location button
+    const confirmButton = document.createElement('button');
+    confirmButton.type = 'button';
+    confirmButton.className = 'btn-primary';
+    confirmButton.innerHTML = '<i class="fas fa-check"></i> Confirm Location';
+    confirmButton.style.width = '100%';
+    confirmButton.style.marginTop = '0.5rem';
+    confirmButton.onclick = async () => {
+        if (userLocation) {
+            // Show loading state
+            confirmButton.disabled = true;
+            confirmButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Getting address...';
+            
+            try {
+                await updateLocationDisplay();
+                showToast('Location confirmed! Address updated.');
+                
+                // Hide the map after confirmation so user can proceed
+                mapContainer.style.display = 'none';
+            } catch (error) {
+                showToast('Error getting address. Please try again.');
+                console.error('Error updating location:', error);
+            } finally {
+                // Reset button
+                confirmButton.disabled = false;
+                confirmButton.innerHTML = '<i class="fas fa-check"></i> Confirm Location';
+            }
+        } else {
+            showToast('Please select a location on the map first');
+        }
+    };
+    
+    mapContainer.appendChild(mapDiv);
+    mapContainer.appendChild(confirmButton);
+    parentElement.appendChild(mapContainer);
+    
+    // Initialize Leaflet map with OpenStreetMap tiles
+    map = L.map('locationPickerMap').setView([lat, lng], 15);
+    
+    // Add OpenStreetMap tile layer
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 19
+    }).addTo(map);
+
+    // Add draggable marker
+    locationMarker = L.marker([lat, lng], {
+        draggable: true,
+        title: 'Your Location'
+    }).addTo(map);
+
+    // Handle map click - just move marker, don't update address yet
+    map.on('click', (e) => {
+        const newLocation = { lat: e.latlng.lat, lng: e.latlng.lng };
+        locationMarker.setLatLng([newLocation.lat, newLocation.lng]);
+        userLocation = newLocation;
+        // Update only the coordinates display, not the address
+        updateLocationCoordinates();
+    });
+
+    // Handle marker drag - just update position, don't update address yet
+    locationMarker.on('dragend', (e) => {
+        const pos = locationMarker.getLatLng();
+        userLocation = { lat: pos.lat, lng: pos.lng };
+        // Update only the coordinates display, not the address
+        updateLocationCoordinates();
+    });
+
+    // Initial display of coordinates
+    updateLocationCoordinates();
+    showToast('Click on map or drag marker to set your location, then click "Confirm Location"');
+}
+
+// Update only the coordinates display without reverse geocoding
+function updateLocationCoordinates() {
+    if (!userLocation) return;
+    
+    const lat = userLocation.lat;
+    const lng = userLocation.lng;
+    
+    if (locationPickerContext === 'register') {
+        const locationDisplay = document.getElementById('locationDisplay');
+        if (locationDisplay) {
+            locationDisplay.innerHTML = 
+                `<i class="fas fa-map-marker-alt"></i> Selected: ${lat.toFixed(6)}, ${lng.toFixed(6)} - Click "Confirm Location" to update address`;
+        }
+    } else if (locationPickerContext === 'order') {
+        const orderLocationDisplay = document.getElementById('orderLocationDisplay');
+        if (orderLocationDisplay) {
+            orderLocationDisplay.innerHTML = 
+                `<i class="fas fa-map-marker-alt"></i> Selected: ${lat.toFixed(6)}, ${lng.toFixed(6)} - Click "Confirm Location" to update address`;
+        }
+    }
+}
+
+// Update location display with reverse geocoded address (called when Confirm button is clicked)
+async function updateLocationDisplay() {
+    if (!userLocation) return;
+    
+    const lat = userLocation.lat;
+    const lng = userLocation.lng;
+    
+    // Get reverse geocoded address
+    const address = await reverseGeocode(lat, lng);
+    
+    if (locationPickerContext === 'register') {
+        const registerLocationInput = document.getElementById('registerLocation');
+        const locationDisplay = document.getElementById('locationDisplay');
+        const registerAddress = document.getElementById('registerAddress');
+        
+        if (registerLocationInput) {
+            registerLocationInput.value = JSON.stringify(userLocation);
+        }
+        if (locationDisplay) {
+            locationDisplay.innerHTML = 
+                `<i class="fas fa-check-circle" style="color: #4caf50;"></i> Location confirmed: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        }
+        // Update the address field with reverse geocoded address
+        if (registerAddress) {
+            registerAddress.value = address;
+        }
+    } else if (locationPickerContext === 'order') {
+        const orderLocationInput = document.getElementById('orderLocation');
+        const orderLocationDisplay = document.getElementById('orderLocationDisplay');
+        const deliveryAddress = document.getElementById('deliveryAddress');
+        
+        if (orderLocationInput) {
+            orderLocationInput.value = JSON.stringify(userLocation);
+        }
+        if (orderLocationDisplay) {
+            orderLocationDisplay.innerHTML = 
+                `<i class="fas fa-check-circle" style="color: #4caf50;"></i> Location confirmed: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        }
+        // Update the delivery address field with reverse geocoded address
+        if (deliveryAddress) {
+            deliveryAddress.value = address;
+        }
     }
 }
 
