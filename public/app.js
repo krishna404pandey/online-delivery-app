@@ -532,10 +532,18 @@ async function loadProducts(options = {}) {
             url += `?${queryString}`;
         }
 
-        const res = await fetch(url);
+        // Include auth token so backend can filter products based on user role
+        const headers = {};
+        const token = localStorage.getItem('token');
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const res = await fetch(url, { headers });
         const products = await res.json();
         displayProducts(products);
     } catch (error) {
+        console.error('Error loading products:', error);
         showToast('Error loading products');
     }
 }
@@ -2368,6 +2376,195 @@ async function loadWholesalersForProxy() {
         console.error('Error loading wholesalers');
     }
 }
+
+// Wholesaler cart for purchasing
+let wholesalerCart = [];
+
+window.loadWholesalerProducts = async function() {
+    if (!currentUser || currentUser.role !== 'retailer') {
+        showToast('Only retailers can purchase from wholesalers', 'error');
+        return;
+    }
+
+    try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_BASE}/products/wholesaler/list`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!res.ok) {
+            const error = await res.json();
+            showToast(error.error || 'Error loading wholesaler products', 'error');
+            return;
+        }
+
+        const products = await res.json();
+        const list = document.getElementById('wholesalerProductsList');
+        if (!list) return;
+
+        if (products.length === 0) {
+            list.innerHTML = '<p>No wholesaler products available</p>';
+            return;
+        }
+
+        list.innerHTML = `
+            <div style="margin-bottom: 1rem;">
+                <h4>Available Wholesaler Products</h4>
+                <p style="color: #666; font-size: 0.9rem;">Purchase these products to add them to your inventory</p>
+            </div>
+            <div id="wholesalerProductsCart" style="margin-bottom: 1rem;"></div>
+            <div id="wholesalerProductsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem;">
+                ${products.map(product => {
+                    const productId = (product._id || product.id || '').toString();
+                    return `
+                    <div class="product-card" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem;">
+                        <img src="${product.image || 'https://via.placeholder.com/300'}" alt="${product.name}" style="width: 100%; height: 150px; object-fit: cover; border-radius: 5px; margin-bottom: 0.5rem;">
+                        <h4 style="margin: 0.5rem 0;">${product.name}</h4>
+                        <p style="color: #666; font-size: 0.9rem; margin: 0.5rem 0;">${product.description || 'No description'}</p>
+                        <p style="font-weight: bold; color: var(--primary-color); margin: 0.5rem 0;">₹${product.price.toFixed(2)}</p>
+                        <p style="color: #666; font-size: 0.9rem; margin: 0.5rem 0;">Stock: ${product.stock}</p>
+                        ${product.sellerName ? `<p style="color: #666; font-size: 0.8rem; margin: 0.5rem 0;">From: ${product.sellerName}</p>` : ''}
+                        <div style="margin-top: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Quantity:</label>
+                            <input type="number" id="qty_${productId}" min="1" max="${product.stock}" value="1" style="width: 80px; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 4px; margin-right: 0.5rem;">
+                            <button class="btn-primary" onclick="addToWholesalerCart('${productId}', '${product.name}', ${product.price}, ${product.stock})" style="padding: 0.5rem 1rem;">
+                                Add to Purchase
+                            </button>
+                        </div>
+                    </div>
+                `;
+                }).join('')}
+            </div>
+            <div id="wholesalerPurchaseSection" style="margin-top: 2rem; padding: 1.5rem; background: white; border-radius: 8px; border: 2px solid var(--primary-color); display: none;">
+                <h4>Purchase Summary</h4>
+                <div id="wholesalerCartItems"></div>
+                <div style="margin-top: 1rem; display: flex; gap: 1rem;">
+                    <button class="btn-primary" onclick="purchaseFromWholesaler()">Complete Purchase</button>
+                    <button class="btn-secondary" onclick="clearWholesalerCart()">Clear Cart</button>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error loading wholesaler products:', error);
+        showToast('Error loading wholesaler products', 'error');
+    }
+};
+
+window.addToWholesalerCart = function(productId, productName, price, maxStock) {
+    const qtyInput = document.getElementById(`qty_${productId}`);
+    const quantity = parseInt(qtyInput?.value || 1);
+    
+    if (quantity < 1 || quantity > maxStock) {
+        showToast(`Quantity must be between 1 and ${maxStock}`, 'error');
+        return;
+    }
+
+    const existingIndex = wholesalerCart.findIndex(item => item.productId === productId);
+    if (existingIndex >= 0) {
+        wholesalerCart[existingIndex].quantity = quantity;
+    } else {
+        wholesalerCart.push({
+            productId,
+            productName,
+            price,
+            quantity,
+            maxStock
+        });
+    }
+
+    updateWholesalerCartDisplay();
+    showToast('Added to purchase cart', 'success');
+};
+
+function updateWholesalerCartDisplay() {
+    const cartSection = document.getElementById('wholesalerPurchaseSection');
+    const cartItems = document.getElementById('wholesalerCartItems');
+    
+    if (!cartSection || !cartItems) return;
+
+    if (wholesalerCart.length === 0) {
+        cartSection.style.display = 'none';
+        return;
+    }
+
+    cartSection.style.display = 'block';
+    
+    const total = wholesalerCart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    
+    cartItems.innerHTML = `
+        <div style="margin-bottom: 1rem;">
+            ${wholesalerCart.map((item, index) => `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border-bottom: 1px solid var(--border-color);">
+                    <div>
+                        <strong>${item.productName}</strong>
+                        <p style="font-size: 0.9rem; color: #666;">Quantity: ${item.quantity} x ₹${item.price.toFixed(2)} = ₹${(item.price * item.quantity).toFixed(2)}</p>
+                    </div>
+                    <button onclick="removeFromWholesalerCart(${index})" style="background: #e74c3c; color: white; border: none; padding: 0.3rem 0.8rem; border-radius: 4px; cursor: pointer;">Remove</button>
+                </div>
+            `).join('')}
+        </div>
+        <div style="font-size: 1.2rem; font-weight: bold; padding-top: 1rem; border-top: 2px solid var(--border-color);">
+            Total: ₹${total.toFixed(2)}
+        </div>
+    `;
+}
+
+window.removeFromWholesalerCart = function(index) {
+    wholesalerCart.splice(index, 1);
+    updateWholesalerCartDisplay();
+};
+
+window.clearWholesalerCart = function() {
+    wholesalerCart = [];
+    updateWholesalerCartDisplay();
+    showToast('Cart cleared', 'info');
+};
+
+window.purchaseFromWholesaler = async function() {
+    if (wholesalerCart.length === 0) {
+        showToast('Cart is empty', 'error');
+        return;
+    }
+
+    if (!currentUser || currentUser.role !== 'retailer') {
+        showToast('Only retailers can purchase from wholesalers', 'error');
+        return;
+    }
+
+    try {
+        const token = localStorage.getItem('token');
+        const items = wholesalerCart.map(item => ({
+            productId: item.productId,
+            quantity: item.quantity
+        }));
+
+        const res = await fetch(`${API_BASE}/products/purchase-from-wholesaler`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ items })
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+            showToast(data.message || 'Products purchased successfully!', 'success');
+            wholesalerCart = [];
+            updateWholesalerCartDisplay();
+            loadInventoryList(); // Refresh inventory
+            loadWholesalerProducts(); // Refresh wholesaler products
+        } else {
+            showToast(data.error || 'Error purchasing products', 'error');
+        }
+    } catch (error) {
+        console.error('Purchase error:', error);
+        showToast('Error: ' + (error.message || 'Failed to purchase products'), 'error');
+    }
+};
 
 async function loadProxyProducts() {
     try {

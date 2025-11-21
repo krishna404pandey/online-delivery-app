@@ -86,8 +86,8 @@ router.get('/', async (req, res) => {
         const token = authHeader.split(' ')[1];
         if (token) {
           const jwt = require('jsonwebtoken');
-          const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-change-in-production');
-          userRole = decoded.role;
+          const decoded = jwt.verify(token, process.env.JWT_SECRET || 'livemart-secret-key-change-in-production');
+          userRole = decoded.role ? String(decoded.role).toLowerCase().trim() : null;
         }
       }
     } catch (err) {
@@ -122,16 +122,21 @@ router.get('/', async (req, res) => {
     const productDocs = await Product.find(query).sort({ createdAt: -1 });
     
     // Filter products based on user role:
-    // - Customers: Only see retailer products and proxy products
+    // - Customers: Only see retailer products (retailerId exists, wholesalerId is null, proxyAvailable is false) and proxy products
     // - Retailers: See all products (retailer products, wholesaler products, and proxy products)
     // - Wholesalers: See all products
     let filteredProducts = productDocs;
     if (userRole === 'customer' || !userRole) {
       // Customers can only see:
-      // 1. Products owned by retailers (retailerId exists, proxyAvailable is false)
-      // 2. Proxy products (proxyAvailable is true)
+      // 1. Products owned by retailers (retailerId exists, wholesalerId is null, proxyAvailable is false)
+      // 2. Proxy products (proxyAvailable is true, regardless of retailerId/wholesalerId)
       filteredProducts = productDocs.filter(product => {
-        return (product.retailerId && !product.proxyAvailable) || product.proxyAvailable;
+        const hasRetailer = product.retailerId && product.retailerId.toString() !== 'null';
+        const hasWholesaler = product.wholesalerId && product.wholesalerId.toString() !== 'null';
+        const isProxy = product.proxyAvailable === true;
+        
+        // Customer can see: retailer products (not proxy) OR proxy products
+        return (hasRetailer && !hasWholesaler && !isProxy) || isProxy;
       });
     }
     // Retailers and wholesalers can see all products (no filtering needed)
@@ -205,10 +210,12 @@ router.post('/', authenticateToken, authorizeRole('retailer', 'wholesaler'), asy
     }
 
     // Normalize role for comparison (case-insensitive)
-    const userRole = req.user.role ? req.user.role.toLowerCase().trim() : null;
+    const userRole = req.user.role ? String(req.user.role).toLowerCase().trim() : null;
     const isRetailer = userRole === 'retailer';
     const isWholesaler = userRole === 'wholesaler';
 
+    // For proxy products: retailer creates a product that references a wholesaler product
+    // The proxyAvailable flag makes it visible to customers
     const newProduct = new Product({
       name,
       description: description || '',
@@ -221,6 +228,14 @@ router.post('/', authenticateToken, authorizeRole('retailer', 'wholesaler'), asy
       wholesalerId: isWholesaler ? req.user.userId : (proxyWholesalerId || null),
       proxyAvailable: isRetailer && proxyWholesalerId ? true : false,
       region: region || ''
+    });
+
+    console.log('Creating product:', {
+      name: newProduct.name,
+      retailerId: newProduct.retailerId,
+      wholesalerId: newProduct.wholesalerId,
+      proxyAvailable: newProduct.proxyAvailable,
+      userRole: userRole
     });
 
     await newProduct.save();
