@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const Order = require('../models/Order');
@@ -20,7 +21,16 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Invalid payment method. Must be "online" or "cod"' });
     }
 
-    const products = await Product.find({ _id: { $in: items.map(i => i.productId) } });
+    // Validate product IDs before querying
+    const productIds = [];
+    for (const item of items) {
+      if (!item.productId || !mongoose.Types.ObjectId.isValid(item.productId)) {
+        return res.status(400).json({ error: 'Invalid product ID provided' });
+      }
+      productIds.push(new mongoose.Types.ObjectId(item.productId));
+    }
+
+    const products = await Product.find({ _id: { $in: productIds } });
     let totalAmount = 0;
     const orderItems = [];
     const stockUpdates = [];

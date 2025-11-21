@@ -2,11 +2,24 @@ const express = require('express');
 const router = express.Router();
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const Product = require('../models/Product');
+const User = require('../models/User');
+
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
 
 // Get all products (with filters)
 router.get('/', async (req, res) => {
   try {
-    const { category, minPrice, maxPrice, inStock, retailerId, wholesalerId, region } = req.query;
+    const { category, minPrice, maxPrice, inStock, retailerId, wholesalerId, region, sortBy, customerLat, customerLng } = req.query;
     
     let query = {};
 
@@ -32,7 +45,61 @@ router.get('/', async (req, res) => {
       query.region = region;
     }
 
-    const products = await Product.find(query).sort({ createdAt: -1 });
+    let products = await Product.find(query).sort({ createdAt: -1 });
+
+    if (sortBy === 'distance' && customerLat && customerLng) {
+      const lat = parseFloat(customerLat);
+      const lng = parseFloat(customerLng);
+
+      if (Number.isNaN(lat) || Number.isNaN(lng)) {
+        return res.status(400).json({ error: 'Invalid customer coordinates' });
+      }
+
+      const retailerIds = [];
+      const wholesalerIds = [];
+
+      products.forEach(product => {
+        if (product.retailerId) {
+          retailerIds.push(product.retailerId.toString());
+        } else if (product.wholesalerId) {
+          wholesalerIds.push(product.wholesalerId.toString());
+        }
+      });
+
+      const uniqueUserIds = [...new Set([...retailerIds, ...wholesalerIds])];
+      const users = await User.find({ _id: { $in: uniqueUserIds } }).select('location');
+      const userLocationMap = new Map();
+      users.forEach(user => {
+        if (user.location && typeof user.location.lat === 'number' && typeof user.location.lng === 'number') {
+          userLocationMap.set(user._id.toString(), user.location);
+        }
+      });
+
+      const productsWithDistance = products.map(product => {
+        let sellerLocation = null;
+        if (product.retailerId && userLocationMap.has(product.retailerId.toString())) {
+          sellerLocation = userLocationMap.get(product.retailerId.toString());
+        } else if (product.wholesalerId && userLocationMap.has(product.wholesalerId.toString())) {
+          sellerLocation = userLocationMap.get(product.wholesalerId.toString());
+        }
+
+        const distance = sellerLocation
+          ? calculateDistance(lat, lng, sellerLocation.lat, sellerLocation.lng)
+          : null;
+
+        return { ...product.toObject(), distance };
+      });
+
+      products = productsWithDistance.sort((a, b) => {
+        if (a.distance === null && b.distance === null) return 0;
+        if (a.distance === null) return 1;
+        if (b.distance === null) return -1;
+        return a.distance - b.distance;
+      });
+    } else {
+      products = products.map(product => product.toObject());
+    }
+
     res.json(products);
   } catch (error) {
     res.status(500).json({ error: error.message });

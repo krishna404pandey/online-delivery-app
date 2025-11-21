@@ -1,17 +1,34 @@
 // API Base URL
 const API_BASE = 'http://localhost:3000/api';
+const OBJECT_ID_REGEX = /^[0-9a-fA-F]{24}$/;
 
 // Global state
 let currentUser = null;
 let cart = JSON.parse(localStorage.getItem('cart')) || [];
 let socket = null;
+let lastKnownLocation = null;
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
+    // Check if this is a payment success/cancel callback
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get('session_id');
+    const pathname = window.location.pathname;
+    const isPaymentSuccess = pathname === '/payment-success' || pathname.includes('payment-success') || sessionId;
+    const isPaymentCancelled = pathname === '/payment-cancelled' || pathname.includes('payment-cancelled');
+    
     // Check if this is an OAuth callback
     const isOAuthCallback = window.location.pathname === '/auth/callback' || window.location.search.includes('token=');
     
-    if (!isOAuthCallback) {
+    if (isPaymentSuccess && sessionId) {
+        // Handle payment success
+        handlePaymentSuccess(sessionId);
+        return;
+    } else if (isPaymentCancelled) {
+        // Handle payment cancellation
+        handlePaymentCancelled();
+        return;
+    } else if (!isOAuthCallback) {
         // Normal initialization
         checkAuth();
         loadCategories();
@@ -105,6 +122,12 @@ function checkAuth() {
         .then(user => {
             if (user._id || user.id) {
                 currentUser = user;
+                    if (currentUser.location && typeof currentUser.location.lat === 'number' && typeof currentUser.location.lng === 'number' && currentUser.location.lat !== 0 && currentUser.location.lng !== 0) {
+                        lastKnownLocation = {
+                            lat: currentUser.location.lat,
+                            lng: currentUser.location.lng
+                        };
+                    }
                 updateNav();
                 // Join socket room for real-time updates
                 if (socket && socket.connected && (currentUser._id || currentUser.id)) {
@@ -164,7 +187,12 @@ function showSection(sectionId) {
     }
 
     if (sectionId === 'products') {
-        loadProducts();
+        const sortSelect = document.getElementById('productSort');
+        if (sortSelect && sortSelect.value === 'distance') {
+            handleProductSortChange();
+        } else {
+            loadProducts();
+        }
     } else if (sectionId === 'cart') {
         loadCart();
     } else if (sectionId === 'orders') {
@@ -407,10 +435,15 @@ async function handleLogin(e) {
 }
 
 function handleSocialLogin(provider) {
+    const roleSelect = document.getElementById('socialLoginRole');
+    const allowedRoles = ['customer', 'retailer', 'wholesaler'];
+    const selectedRole = roleSelect && allowedRoles.includes(roleSelect.value) ? roleSelect.value : 'customer';
+    const roleParam = `role=${encodeURIComponent(selectedRole)}`;
+    
     if (provider === 'google') {
-        window.location.href = `${API_BASE}/auth/google`;
+        window.location.href = `${API_BASE}/auth/google?${roleParam}`;
     } else if (provider === 'facebook') {
-        window.location.href = `${API_BASE}/auth/facebook`;
+        window.location.href = `${API_BASE}/auth/facebook?${roleParam}`;
     }
 }
 
@@ -482,9 +515,23 @@ function logout() {
 }
 
 // Products
-async function loadProducts() {
+async function loadProducts(options = {}) {
     try {
-        const res = await fetch(`${API_BASE}/products`);
+        let url = `${API_BASE}/products`;
+        const params = new URLSearchParams();
+
+        if (options.sortBy === 'distance' && options.lat && options.lng) {
+            params.append('sortBy', 'distance');
+            params.append('customerLat', options.lat);
+            params.append('customerLng', options.lng);
+        }
+
+        const queryString = params.toString();
+        if (queryString) {
+            url += `?${queryString}`;
+        }
+
+        const res = await fetch(url);
         const products = await res.json();
         displayProducts(products);
     } catch (error) {
@@ -512,6 +559,7 @@ function displayProducts(products) {
                 <div class="product-stock ${product.stock > 0 ? '' : 'out'}">
                     ${product.stock > 0 ? `In Stock (${product.stock})` : 'Out of Stock'}
                 </div>
+                ${typeof product.distance === 'number' ? `<div class="product-distance"><i class="fas fa-route"></i> ${product.distance.toFixed(1)} km away</div>` : ''}
                 ${product.averageRating > 0 ? `<div style="font-size: 0.9rem; color: #f39c12;">⭐ ${product.averageRating.toFixed(1)}</div>` : ''}
                 <button class="btn-add-cart" ${product.stock === 0 ? 'disabled' : ''} 
                     onclick="event.stopPropagation(); addToCart('${productId}', '${product.name}', ${product.price})">
@@ -521,6 +569,59 @@ function displayProducts(products) {
         </div>
     `;
     }).join('');
+}
+
+async function handleProductSortChange() {
+    const sortSelect = document.getElementById('productSort');
+    if (!sortSelect) return;
+    const sortValue = sortSelect.value;
+
+    if (sortValue === 'distance') {
+        try {
+            const coords = await getUserCoordinatesForDistanceSort();
+            lastKnownLocation = coords;
+            await loadProducts({ sortBy: 'distance', lat: coords.lat, lng: coords.lng });
+            showToast('Products sorted by nearest distance', 'info');
+        } catch (error) {
+            showToast(error.message || 'Unable to determine location', 'error');
+            sortSelect.value = 'default';
+            loadProducts();
+        }
+    } else {
+        loadProducts();
+    }
+}
+
+function getUserCoordinatesForDistanceSort() {
+    return new Promise((resolve, reject) => {
+        if (currentUser && currentUser.location && typeof currentUser.location.lat === 'number' && typeof currentUser.location.lng === 'number' && currentUser.location.lat !== 0 && currentUser.location.lng !== 0) {
+            resolve({
+                lat: currentUser.location.lat,
+                lng: currentUser.location.lng
+            });
+            return;
+        }
+
+        if (lastKnownLocation) {
+            resolve(lastKnownLocation);
+            return;
+        }
+
+        if (!navigator.geolocation) {
+            reject(new Error('Geolocation not supported on this device'));
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                resolve({
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                });
+            },
+            () => reject(new Error('Location permission denied'))
+        );
+    });
 }
 
 async function showProductDetails(productId) {
@@ -812,6 +913,7 @@ function placeOrder() {
     const content = document.getElementById('paymentModalContent');
     
     content.innerHTML = `
+        <div class="checkout-modal-body">
         <div style="margin-bottom: 1.5rem;">
             <h3>Order Summary</h3>
             ${cart.map(item => `
@@ -850,6 +952,7 @@ function placeOrder() {
             <div id="orderLocationDisplay" style="margin-top:0.5rem; font-size:0.9rem; color:#666;"></div>
         </div>
         <button class="btn-primary" onclick="confirmOrder()">Place Order</button>
+        </div>
     `;
     
     modal.style.display = 'block';
@@ -928,6 +1031,23 @@ document.addEventListener('click', (e) => {
 });
 
 async function confirmOrder() {
+    // Validate cart items have proper product IDs before proceeding
+    const validCartItems = cart.filter(item => item && item.productId && OBJECT_ID_REGEX.test(String(item.productId)));
+    
+    if (validCartItems.length !== cart.length) {
+        cart = validCartItems;
+        localStorage.setItem('cart', JSON.stringify(cart));
+        updateCartCount();
+        loadCart();
+        closePaymentModal();
+        if (cart.length === 0) {
+            showToast('Cart became empty because some products were unavailable. Please add products again.', 'error');
+        } else {
+            showToast('Some cart items were removed because their product details expired. Please review cart before checkout.', 'error');
+        }
+        return;
+    }
+
     const paymentMethod = document.getElementById('selectedPaymentMethod').value;
     const deliveryAddress = document.getElementById('deliveryAddress').value;
     const scheduledDateInput = document.getElementById('scheduledDate');
@@ -949,14 +1069,54 @@ async function confirmOrder() {
         total += item.price * item.quantity;
     });
 
-    // For online payment, show confirmation dialog
+    // For online payment, redirect to Stripe Checkout
     if (paymentMethod === 'online') {
         const confirmed = await showPaymentConfirmation(total);
         if (!confirmed) {
             return; // User cancelled
         }
+
+        // Create Stripe Checkout Session
+        try {
+            showToast('Redirecting to secure payment...', 'info');
+            
+            const res = await fetch(`${API_BASE}/payments/create-checkout-session`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                    items: cart.map(item => ({ productId: item.productId, quantity: item.quantity })),
+                    deliveryAddress: deliveryAddress.trim(),
+                    scheduledDate: scheduledDate
+                })
+            });
+
+            const data = await res.json();
+            
+            if (res.ok && data.url) {
+                // Store cart and delivery info in sessionStorage for after payment
+                sessionStorage.setItem('pendingOrder', JSON.stringify({
+                    items: cart.map(item => ({ productId: item.productId, quantity: item.quantity })),
+                    deliveryAddress: deliveryAddress.trim(),
+                    scheduledDate: scheduledDate
+                }));
+                
+                // Redirect to Stripe Checkout
+                window.location.href = data.url;
+            } else {
+                showToast(data.error || 'Error creating payment session');
+                console.error('Payment session error:', data);
+            }
+        } catch (error) {
+            console.error('Payment session creation error:', error);
+            showToast('Error: ' + (error.message || 'Failed to create payment session'));
+        }
+        return;
     }
 
+    // For COD, proceed with normal order creation
     const orderData = {
         items: cart.map(item => ({ productId: item.productId, quantity: item.quantity })),
         paymentMethod,
@@ -1014,15 +1174,22 @@ function showPaymentConfirmation(amount) {
         confirmModal.innerHTML = `
             <div class="modal-content" style="max-width: 400px;" onclick="event.stopPropagation()">
                 <span class="close-modal" onclick="closePaymentConfirmModal(false)">&times;</span>
-                <h2 style="margin-bottom: 1rem;">Confirm Payment</h2>
+                <h2 style="margin-bottom: 1rem;">Proceed to Payment</h2>
                 <div style="text-align: center; padding: 2rem 0;">
-                    <p style="font-size: 1.1rem; margin-bottom: 1rem;">CONFIRM PAYMENT of ₹</p>
+                    <p style="font-size: 1.1rem; margin-bottom: 1rem;">Total Amount</p>
                     <h1 style="font-size: 2.5rem; color: var(--primary-color); margin: 1rem 0;">₹${amount.toFixed(2)}</h1>
-                    <p style="color: #666; margin-top: 1rem;">This is a placeholder for payment gateway integration</p>
+                    <p style="color: #666; margin-top: 1rem;">
+                        <i class="fas fa-lock"></i> You will be redirected to Stripe's secure payment page
+                    </p>
+                    <p style="color: #666; font-size: 0.9rem; margin-top: 0.5rem;">
+                        Test Card: 4242 4242 4242 4242
+                    </p>
                 </div>
                 <div style="display: flex; gap: 1rem; margin-top: 2rem;">
-                    <button class="btn-secondary" onclick="closePaymentConfirmModal(false)" style="flex: 1;">No, Cancel</button>
-                    <button class="btn-primary" onclick="closePaymentConfirmModal(true)" style="flex: 1;">Yes, Confirm</button>
+                    <button class="btn-secondary" onclick="closePaymentConfirmModal(false)" style="flex: 1;">Cancel</button>
+                    <button class="btn-primary" onclick="closePaymentConfirmModal(true)" style="flex: 1;">
+                        <i class="fas fa-credit-card"></i> Proceed to Payment
+                    </button>
                 </div>
             </div>
         `;
@@ -1049,6 +1216,86 @@ function closePaymentConfirmModal(confirmed) {
         window.paymentConfirmResolve(confirmed);
         window.paymentConfirmResolve = null;
     }
+}
+
+// Handle payment success from Stripe
+async function handlePaymentSuccess(sessionId) {
+    try {
+        // Check authentication
+        const token = localStorage.getItem('token');
+        if (!token) {
+            showToast('Please login to complete your order', 'error');
+            setTimeout(() => {
+                window.location.href = '/';
+                showSection('login');
+            }, 2000);
+            return;
+        }
+
+        showToast('Verifying payment...', 'info');
+
+        // Verify payment and create order
+        const res = await fetch(`${API_BASE}/payments/verify-payment`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ sessionId })
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.order) {
+            // Clear cart
+            cart = [];
+            localStorage.setItem('cart', JSON.stringify(cart));
+            sessionStorage.removeItem('pendingOrder');
+            updateCartCount();
+
+            // Clean URL
+            window.history.replaceState({}, document.title, '/');
+
+            showToast('Payment successful! Order placed.', 'success');
+
+            // Show orders section
+            setTimeout(() => {
+                showSection('orders');
+                loadOrders();
+                checkAuth(); // Refresh user data
+            }, 1000);
+        } else {
+            showToast(data.error || 'Error verifying payment', 'error');
+            setTimeout(() => {
+                window.location.href = '/';
+                showSection('cart');
+            }, 2000);
+        }
+    } catch (error) {
+        console.error('Payment verification error:', error);
+        showToast('Error verifying payment. Please contact support.', 'error');
+        setTimeout(() => {
+            window.location.href = '/';
+            showSection('cart');
+        }, 2000);
+    }
+}
+
+// Handle payment cancellation
+function handlePaymentCancelled() {
+    // Clean URL
+    window.history.replaceState({}, document.title, '/');
+    
+    showToast('Payment was cancelled', 'info');
+    
+    // Clear pending order from sessionStorage
+    sessionStorage.removeItem('pendingOrder');
+    
+    // Cart should still be in localStorage, just reload it
+    setTimeout(() => {
+        showSection('cart');
+        loadCart();
+    }, 1000);
 }
 
 function setOrderReminder(orderId, scheduledDate) {
@@ -2280,9 +2527,17 @@ async function viewShopProducts(shopId) {
 }
 
 // Toast notification
-function showToast(message) {
+function showToast(message, type = 'success') {
     const toast = document.getElementById('toast');
     toast.textContent = message;
+    toast.className = 'toast';
+    if (type === 'error') {
+        toast.style.backgroundColor = '#e74c3c';
+    } else if (type === 'info') {
+        toast.style.backgroundColor = '#3498db';
+    } else {
+        toast.style.backgroundColor = '#27ae60';
+    }
     toast.classList.add('show');
     setTimeout(() => {
         toast.classList.remove('show');

@@ -5,6 +5,18 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { sendOTP } = require('../config/email');
 
+const ALLOWED_ROLES = ['customer', 'retailer', 'wholesaler'];
+
+const setOAuthRoleInSession = (req) => {
+  if (!req || !req.session) return;
+  const requestedRole = req.query.role;
+  if (requestedRole && ALLOWED_ROLES.includes(requestedRole)) {
+    req.session.oauthRole = requestedRole;
+  } else {
+    req.session.oauthRole = 'customer';
+  }
+};
+
 // Generate OTP
 const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -237,7 +249,10 @@ router.post('/resend-otp', async (req, res) => {
 });
 
 // Google OAuth routes
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+router.get('/google', (req, res, next) => {
+  setOAuthRoleInSession(req);
+  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+});
 
 router.get('/google/callback',
   passport.authenticate('google', { failureRedirect: '/login' }),
@@ -259,7 +274,10 @@ router.get('/google/callback',
 );
 
 // Facebook OAuth routes
-router.get('/facebook', passport.authenticate('facebook', { scope: ['email'] }));
+router.get('/facebook', (req, res, next) => {
+  setOAuthRoleInSession(req);
+  passport.authenticate('facebook', { scope: ['email'] })(req, res, next);
+});
 
 router.get('/facebook/callback',
   passport.authenticate('facebook', { failureRedirect: '/login' }),

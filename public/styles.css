@@ -358,6 +358,15 @@ body {
     margin-bottom: 1rem;
 }
 
+.product-distance {
+    font-size: 0.9rem;
+    color: #2c3e50;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
 .product-stock.out {
     color: var(--danger-color);
 }
@@ -659,6 +668,26 @@ body {
 
 .close-modal:hover {
     color: var(--primary-color);
+}
+
+.checkout-modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+}
+
+.checkout-modal-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.checkout-modal-body::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+}
+
+.checkout-modal-body::-webkit-scrollbar-track {
+    background-color: rgba(0, 0, 0, 0.05);
+    border-radius: 6px;
 }
 
 .payment-option {

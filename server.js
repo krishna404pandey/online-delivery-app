@@ -17,6 +17,7 @@ const orderRoutes = require('./routes/orders');
 const feedbackRoutes = require('./routes/feedback');
 const searchRoutes = require('./routes/search');
 const queryRoutes = require('./routes/queries');
+const paymentRoutes = require('./routes/payments');
 
 // Connect to MongoDB
 connectDB();
@@ -59,6 +60,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/queries', queryRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // Serve frontend - handle OAuth callback route
 app.get('/auth/callback', (req, res) => {
