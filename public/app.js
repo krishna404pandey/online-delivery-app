@@ -1601,47 +1601,115 @@ function loadInventory() {
 
 async function addProduct(e) {
     e.preventDefault();
-    if (!currentUser) return;
+    if (!currentUser) {
+        showToast('Please login to add products', 'error');
+        return;
+    }
 
+    // Get form values
+    const name = document.getElementById('productName')?.value?.trim();
+    const description = document.getElementById('productDescription')?.value?.trim() || '';
+    const price = document.getElementById('productPrice')?.value;
+    const stock = document.getElementById('productStock')?.value;
+    const category = document.getElementById('productCategory')?.value?.trim();
+    const image = document.getElementById('productImage')?.value?.trim() || 'https://via.placeholder.com/300';
+
+    // Validate required fields
+    if (!name) {
+        showToast('Product name is required', 'error');
+        return;
+    }
+    if (!price || isNaN(parseFloat(price)) || parseFloat(price) < 0) {
+        showToast('Valid price is required', 'error');
+        return;
+    }
+    if (stock === '' || stock === null || stock === undefined || isNaN(parseInt(stock)) || parseInt(stock) < 0) {
+        showToast('Valid stock quantity is required', 'error');
+        return;
+    }
+    if (!category) {
+        showToast('Category is required', 'error');
+        return;
+    }
+
+    // Prepare product data
     const productData = {
-        name: document.getElementById('productName').value,
-        description: document.getElementById('productDescription').value,
-        price: document.getElementById('productPrice').value,
-        stock: document.getElementById('productStock').value,
-        category: document.getElementById('productCategory').value,
-        image: document.getElementById('productImage').value
+        name: name,
+        description: description,
+        price: parseFloat(price),
+        stock: parseInt(stock),
+        category: category,
+        image: image
     };
 
+    // Add proxy wholesaler if retailer selected it
     if (currentUser.role === 'retailer') {
         const proxyCheckbox = document.getElementById('proxyAvailable');
         if (proxyCheckbox && proxyCheckbox.checked) {
-            productData.proxyWholesalerId = document.getElementById('proxyWholesalerId').value;
+            const proxyWholesalerId = document.getElementById('proxyWholesalerId')?.value;
+            if (proxyWholesalerId) {
+                productData.proxyWholesalerId = proxyWholesalerId;
+            }
         }
     }
 
     try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            showToast('Authentication required. Please login again.', 'error');
+            return;
+        }
+
         const res = await fetch(`${API_BASE}/products`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify(productData)
         });
 
+        const contentType = res.headers.get('content-type') || '';
+        let data;
+        
+        try {
+            data = contentType.includes('application/json') ? await res.json() : { error: await res.text() };
+        } catch (parseError) {
+            console.error('Error parsing response:', parseError);
+            data = { error: 'Failed to parse server response' };
+        }
+
         if (res.ok) {
-            showToast('Product added!');
+            showToast('Product added successfully!');
             loadInventoryList();
-            document.getElementById('productName').value = '';
-            document.getElementById('productDescription').value = '';
-            document.getElementById('productPrice').value = '';
-            document.getElementById('productStock').value = '';
-            document.getElementById('productCategory').value = '';
+            // Reset form
+            if (document.getElementById('productName')) document.getElementById('productName').value = '';
+            if (document.getElementById('productDescription')) document.getElementById('productDescription').value = '';
+            if (document.getElementById('productPrice')) document.getElementById('productPrice').value = '';
+            if (document.getElementById('productStock')) document.getElementById('productStock').value = '';
+            if (document.getElementById('productCategory')) document.getElementById('productCategory').value = '';
+            if (document.getElementById('productImage')) {
+                document.getElementById('productImage').value = 'https://via.placeholder.com/300';
+            }
+            if (document.getElementById('proxyAvailable')) {
+                document.getElementById('proxyAvailable').checked = false;
+                const proxySelect = document.getElementById('proxyWholesalerId');
+                if (proxySelect) proxySelect.style.display = 'none';
+            }
         } else {
-            showToast('Error adding product');
+            const errorMessage = data.error || data.message || `Error adding product (Status: ${res.status})`;
+            console.error('Product creation error:', {
+                status: res.status,
+                statusText: res.statusText,
+                error: errorMessage,
+                data: data,
+                productData: productData
+            });
+            showToast(errorMessage, 'error');
         }
     } catch (error) {
-        showToast('Error: ' + error.message);
+        console.error('Product creation error:', error);
+        showToast('Network error: ' + (error.message || 'Failed to add product. Please check your connection.'), 'error');
     }
 }
 
