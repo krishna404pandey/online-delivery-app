@@ -7,6 +7,7 @@ let currentUser = null;
 let cart = JSON.parse(localStorage.getItem('cart')) || [];
 let socket = null;
 let lastKnownLocation = null;
+let lastDisplayedProducts = [];
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
@@ -542,13 +543,14 @@ async function loadProducts(options = {}) {
 function displayProducts(products) {
     const grid = document.getElementById('productsGrid');
     if (!grid) return;
+    lastDisplayedProducts = Array.isArray(products) ? products : [];
 
-    if (products.length === 0) {
+    if (lastDisplayedProducts.length === 0) {
         grid.innerHTML = '<p>No products found</p>';
         return;
     }
 
-    grid.innerHTML = products.map(product => {
+    grid.innerHTML = lastDisplayedProducts.map(product => {
         const productId = product._id || product.id;
         return `
         <div class="product-card" onclick="showProductDetails('${productId}')">
@@ -624,6 +626,30 @@ function getUserCoordinatesForDistanceSort() {
     });
 }
 
+function viewProductFromMap(productId) {
+    if (!productId) return;
+    showProductDetails(productId);
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
 async function showProductDetails(productId) {
     try {
         const res = await fetch(`${API_BASE}/products/${productId}`);
@@ -648,6 +674,24 @@ async function showProductDetails(productId) {
             ? (feedback.reduce((sum, f) => sum + f.rating, 0) / feedback.length).toFixed(1)
             : 'No ratings';
 
+        const productIdNormalized = product._id || product.id;
+        const reviewsHtml = feedback.length === 0 ? '<p>No reviews yet</p>' :
+            feedback.map(f => {
+                const reviewer = f.userId?.name || 'Customer';
+                const reviewDate = formatDate(f.createdAt);
+                const comment = f.comment && f.comment.trim().length > 0 ? f.comment : 'No comment provided';
+                return `
+                    <div class="review-card">
+                        <div class="review-header">
+                            <strong>${reviewer}</strong>
+                            <span>${reviewDate}</span>
+                        </div>
+                        <div class="review-rating">⭐ ${f.rating}</div>
+                        <div class="review-comment">${comment}</div>
+                    </div>
+                `;
+            }).join('');
+
         const content = document.getElementById('productDetailsContent');
         content.innerHTML = `
             <div class="product-details">
@@ -660,23 +704,17 @@ async function showProductDetails(productId) {
                     <p><strong>Stock:</strong> ${product.stock > 0 ? `${product.stock} available` : 'Out of stock'}</p>
                     <p><strong>Rating:</strong> ${avgRating} ⭐</p>
                     <button class="btn-primary" ${product.stock === 0 ? 'disabled' : ''} 
-                        onclick="addToCart('${product.id}', '${product.name}', ${product.price})">
+                        onclick="addToCart('${productIdNormalized}', '${product.name}', ${product.price})">
                         Add to Cart
                     </button>
-                    <h3 style="margin-top: 2rem;">Feedback</h3>
+                    <h3 style="margin-top: 2rem;">Customer Reviews</h3>
                     <div id="productFeedback">
-                        ${feedback.length === 0 ? '<p>No feedback yet</p>' : 
-                          feedback.map(f => `
-                            <div style="padding: 1rem; margin: 0.5rem 0; background: #f5f5f5; border-radius: 5px;">
-                                <div><strong>${f.rating} ⭐</strong></div>
-                                <div>${f.comment || 'No comment'}</div>
-                            </div>
-                          `).join('')}
+                        ${reviewsHtml}
                     </div>
                     ${currentUser ? `
                         <div style="margin-top: 2rem;">
                             <h4>Add Feedback</h4>
-                            <form onsubmit="submitFeedback(event, '${product.id}')">
+                            <form onsubmit="submitFeedback(event, '${productIdNormalized}')">
                                 <div class="form-group">
                                     <label>Rating</label>
                                     <select id="feedbackRating" required>
@@ -2414,97 +2452,105 @@ async function updateLocationDisplay() {
     }
 }
 
-function showNearbyShopsMap() {
-    if (!navigator.geolocation) {
-        showToast('Geolocation not supported');
+async function showNearbyShopsMap() {
+    if (!lastDisplayedProducts || lastDisplayedProducts.length === 0) {
+        showToast('Load products first to display them on the map', 'info');
         return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-        async (position) => {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
+    let userCoords = null;
+    try {
+        userCoords = await getUserCoordinatesForDistanceSort();
+    } catch (error) {
+        console.warn('Unable to fetch user coordinates for map view:', error);
+    }
 
-            try {
-                const res = await fetch(`${API_BASE}/search/shops/nearby?lat=${lat}&lng=${lng}&maxDistance=50`, {
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-                });
-                const shops = await res.json();
-
-                showSection('map-section');
-                
-                // Initialize Leaflet map
-                const mapDiv = document.getElementById('map');
-                if (map) {
-                    map.remove();
-                }
-                
-                map = L.map('map').setView([lat, lng], 12);
-                
-                // Add OpenStreetMap tile layer
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '© OpenStreetMap contributors',
-                    maxZoom: 19
-                }).addTo(map);
-
-                // Add user location marker with custom icon
-                const userIcon = L.divIcon({
-                    className: 'custom-marker',
-                    html: '<div style="background-color: #4285f4; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-                    iconSize: [20, 20],
-                    iconAnchor: [10, 10]
-                });
-                
-                L.marker([lat, lng], { icon: userIcon })
-                    .addTo(map)
-                    .bindPopup('<b>Your Location</b>');
-
-                // Add shop markers
-                shops.forEach(shop => {
-                    const shopIcon = L.divIcon({
-                        className: 'custom-marker',
-                        html: `<div style="background-color: ${shop.role === 'retailer' ? '#ea4335' : '#34a853'}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
-                        iconSize: [20, 20],
-                        iconAnchor: [10, 10]
-                    });
-                    
-                    const marker = L.marker([shop.location.lat, shop.location.lng], { 
-                        icon: shopIcon,
-                        title: shop.name
-                    }).addTo(map);
-
-                    const popupContent = `
-                        <div style="padding: 0.5rem;">
-                            <h3 style="margin: 0 0 0.5rem 0;">${shop.name}</h3>
-                            <p style="margin: 0.25rem 0;"><strong>Type:</strong> ${shop.role}</p>
-                            <p style="margin: 0.25rem 0;"><strong>Address:</strong> ${shop.address || 'No address'}</p>
-                            <p style="margin: 0.25rem 0;"><strong>Distance:</strong> ${shop.distance} km</p>
-                        </div>
-                    `;
-                    
-                    marker.bindPopup(popupContent);
-                });
-
-                // Display shops list
-                const listDiv = document.getElementById('nearbyShopsList');
-                listDiv.innerHTML = shops.map(shop => `
-                    <div class="feature-card" style="margin: 1rem 0;">
-                        <h3>${shop.name}</h3>
-                        <p><strong>Type:</strong> ${shop.role}</p>
-                        <p><strong>Distance:</strong> ${shop.distance} km</p>
-                        <p><strong>Address:</strong> ${shop.address || 'No address'}</p>
-                        <button class="btn-primary" onclick="viewShopProducts('${shop.id}')">View Products</button>
-                    </div>
-                `).join('');
-
-            } catch (error) {
-                showToast('Error loading nearby shops');
-            }
-        },
-        (error) => {
-            showToast('Error getting location');
-        }
+    const productsWithLocation = lastDisplayedProducts.filter(product =>
+        product.sellerLocation &&
+        typeof product.sellerLocation.lat === 'number' &&
+        typeof product.sellerLocation.lng === 'number' &&
+        !Number.isNaN(product.sellerLocation.lat) &&
+        !Number.isNaN(product.sellerLocation.lng)
     );
+
+    if (productsWithLocation.length === 0) {
+        showToast('These products do not have location information yet', 'error');
+        return;
+    }
+
+    showSection('map-section');
+
+    if (map) {
+        map.remove();
+    }
+
+    const defaultCenter = userCoords || productsWithLocation[0].sellerLocation;
+    map = L.map('map').setView([defaultCenter.lat, defaultCenter.lng], userCoords ? 12 : 6);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 19
+    }).addTo(map);
+
+    if (userCoords) {
+        const userIcon = L.divIcon({
+            className: 'custom-marker',
+            html: '<div style="background-color: #4285f4; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+        });
+
+        L.marker([userCoords.lat, userCoords.lng], { icon: userIcon })
+            .addTo(map)
+            .bindPopup('<b>Your Location</b>');
+    }
+
+    productsWithLocation.forEach(product => {
+        const sellerLoc = product.sellerLocation;
+        const distance = userCoords && sellerLoc
+            ? calculateDistanceKm(userCoords.lat, userCoords.lng, sellerLoc.lat, sellerLoc.lng)
+            : null;
+
+        const markerIcon = L.divIcon({
+            className: 'custom-marker',
+            html: `<div style="background-color: ${product.sellerRole === 'retailer' ? '#ea4335' : '#34a853'}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+        });
+
+        const marker = L.marker([sellerLoc.lat, sellerLoc.lng], {
+            icon: markerIcon,
+            title: product.name
+        }).addTo(map);
+
+        const popupContent = `
+            <div style="padding: 0.5rem;">
+                <h3 style="margin: 0 0 0.5rem 0;">${product.name}</h3>
+                <p style="margin: 0.25rem 0;"><strong>Seller:</strong> ${product.sellerName || 'N/A'} (${product.sellerRole || 'N/A'})</p>
+                <p style="margin: 0.25rem 0;"><strong>Price:</strong> ₹${product.price?.toFixed ? product.price.toFixed(2) : product.price}</p>
+                ${distance !== null ? `<p style="margin: 0.25rem 0;"><strong>Distance:</strong> ${distance.toFixed(1)} km</p>` : ''}
+                <button class="btn-primary" style="margin-top:0.5rem;" onclick="viewProductFromMap('${product._id || product.id}')">View Product</button>
+            </div>
+        `;
+
+        marker.bindPopup(popupContent);
+    });
+
+    const listDiv = document.getElementById('mapProductsList');
+    listDiv.innerHTML = productsWithLocation.map(product => {
+        const distance = userCoords && product.sellerLocation
+            ? calculateDistanceKm(userCoords.lat, userCoords.lng, product.sellerLocation.lat, product.sellerLocation.lng)
+            : null;
+        return `
+            <div class="feature-card" style="margin: 1rem 0;">
+                <h3>${product.name}</h3>
+                <p><strong>Seller:</strong> ${product.sellerName || 'N/A'} (${product.sellerRole || 'N/A'})</p>
+                <p><strong>Price:</strong> ₹${product.price?.toFixed ? product.price.toFixed(2) : product.price}</p>
+                ${distance !== null ? `<p><strong>Distance:</strong> ${distance.toFixed(1)} km</p>` : ''}
+                <button class="btn-primary" onclick="viewProductFromMap('${product._id || product.id}')">View Details</button>
+            </div>
+        `;
+    }).join('');
 }
 
 async function viewShopProducts(shopId) {

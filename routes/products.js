@@ -4,6 +4,19 @@ const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const Product = require('../models/Product');
 const User = require('../models/User');
 
+const normalizeLocation = (location) => {
+  if (
+    location &&
+    typeof location.lat === 'number' &&
+    typeof location.lng === 'number' &&
+    !Number.isNaN(location.lat) &&
+    !Number.isNaN(location.lng)
+  ) {
+    return { lat: location.lat, lng: location.lng };
+  }
+  return null;
+};
+
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // km
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -14,6 +27,48 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+};
+
+const enrichProductsWithSellerDetails = async (products) => {
+  if (!products || products.length === 0) {
+    return [];
+  }
+
+  const sellerIds = new Set();
+  products.forEach(product => {
+    if (product.retailerId) {
+      sellerIds.add(product.retailerId.toString());
+    } else if (product.wholesalerId) {
+      sellerIds.add(product.wholesalerId.toString());
+    }
+  });
+
+  const sellers = sellerIds.size > 0
+    ? await User.find({ _id: { $in: Array.from(sellerIds) } }).select('name role address location')
+    : [];
+
+  const sellerMap = new Map();
+  sellers.forEach(user => {
+    sellerMap.set(user._id.toString(), user);
+  });
+
+  return products.map(product => {
+    const obj = product.toObject();
+    const sellerId = product.retailerId
+      ? product.retailerId.toString()
+      : product.wholesalerId
+        ? product.wholesalerId.toString()
+        : null;
+    const seller = sellerId ? sellerMap.get(sellerId) : null;
+
+    return {
+      ...obj,
+      sellerName: seller ? seller.name : null,
+      sellerRole: seller ? seller.role : null,
+      sellerAddress: seller ? seller.address : null,
+      sellerLocation: seller ? normalizeLocation(seller.location) : null
+    };
+  });
 };
 
 // Get all products (with filters)
@@ -45,7 +100,8 @@ router.get('/', async (req, res) => {
       query.region = region;
     }
 
-    let products = await Product.find(query).sort({ createdAt: -1 });
+    const productDocs = await Product.find(query).sort({ createdAt: -1 });
+    let products = await enrichProductsWithSellerDetails(productDocs);
 
     if (sortBy === 'distance' && customerLat && customerLng) {
       const lat = parseFloat(customerLat);
@@ -55,49 +111,19 @@ router.get('/', async (req, res) => {
         return res.status(400).json({ error: 'Invalid customer coordinates' });
       }
 
-      const retailerIds = [];
-      const wholesalerIds = [];
-
-      products.forEach(product => {
-        if (product.retailerId) {
-          retailerIds.push(product.retailerId.toString());
-        } else if (product.wholesalerId) {
-          wholesalerIds.push(product.wholesalerId.toString());
-        }
-      });
-
-      const uniqueUserIds = [...new Set([...retailerIds, ...wholesalerIds])];
-      const users = await User.find({ _id: { $in: uniqueUserIds } }).select('location');
-      const userLocationMap = new Map();
-      users.forEach(user => {
-        if (user.location && typeof user.location.lat === 'number' && typeof user.location.lng === 'number') {
-          userLocationMap.set(user._id.toString(), user.location);
-        }
-      });
-
-      const productsWithDistance = products.map(product => {
-        let sellerLocation = null;
-        if (product.retailerId && userLocationMap.has(product.retailerId.toString())) {
-          sellerLocation = userLocationMap.get(product.retailerId.toString());
-        } else if (product.wholesalerId && userLocationMap.has(product.wholesalerId.toString())) {
-          sellerLocation = userLocationMap.get(product.wholesalerId.toString());
-        }
-
-        const distance = sellerLocation
-          ? calculateDistance(lat, lng, sellerLocation.lat, sellerLocation.lng)
-          : null;
-
-        return { ...product.toObject(), distance };
-      });
-
-      products = productsWithDistance.sort((a, b) => {
+      products = products
+        .map(product => {
+          const distance = product.sellerLocation
+            ? calculateDistance(lat, lng, product.sellerLocation.lat, product.sellerLocation.lng)
+            : null;
+          return { ...product, distance };
+        })
+        .sort((a, b) => {
         if (a.distance === null && b.distance === null) return 0;
         if (a.distance === null) return 1;
         if (b.distance === null) return -1;
         return a.distance - b.distance;
       });
-    } else {
-      products = products.map(product => product.toObject());
     }
 
     res.json(products);

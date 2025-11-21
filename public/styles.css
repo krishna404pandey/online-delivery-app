@@ -436,6 +436,33 @@ body {
     margin: 1rem 0;
 }
 
+.review-card {
+    padding: 1rem;
+    margin: 0.75rem 0;
+    background: #f7f8fc;
+    border-radius: 8px;
+    border: 1px solid rgba(0,0,0,0.05);
+}
+
+.review-header {
+    display: flex;
+    justify-content: space-between;
+    color: #555;
+    font-size: 0.9rem;
+    margin-bottom: 0.35rem;
+}
+
+.review-rating {
+    font-weight: 600;
+    color: #f39c12;
+    margin-bottom: 0.25rem;
+}
+
+.review-comment {
+    color: #2c3e50;
+    line-height: 1.4;
+}
+
 /* Cart */
 .cart-item {
     background: white;

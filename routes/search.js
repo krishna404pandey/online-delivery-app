@@ -5,7 +5,19 @@ const Product = require('../models/Product');
 const User = require('../models/User');
 const Order = require('../models/Order');
 
-// Calculate distance between two coordinates (Haversine formula)
+const normalizeLocation = (location) => {
+  if (
+    location &&
+    typeof location.lat === 'number' &&
+    typeof location.lng === 'number' &&
+    !Number.isNaN(location.lat) &&
+    !Number.isNaN(location.lng)
+  ) {
+    return { lat: location.lat, lng: location.lng };
+  }
+  return null;
+};
+
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // Radius of the Earth in km
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -16,6 +28,48 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
     Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c;
+};
+
+const enrichProductsWithSellerDetails = async (products) => {
+  if (!products || products.length === 0) {
+    return [];
+  }
+
+  const sellerIds = new Set();
+  products.forEach(product => {
+    if (product.retailerId) {
+      sellerIds.add(product.retailerId.toString());
+    } else if (product.wholesalerId) {
+      sellerIds.add(product.wholesalerId.toString());
+    }
+  });
+
+  const sellers = sellerIds.size > 0
+    ? await User.find({ _id: { $in: Array.from(sellerIds) } }).select('name role address location')
+    : [];
+
+  const sellerMap = new Map();
+  sellers.forEach(user => {
+    sellerMap.set(user._id.toString(), user);
+  });
+
+  return products.map(product => {
+    const obj = product.toObject();
+    const sellerId = product.retailerId
+      ? product.retailerId.toString()
+      : product.wholesalerId
+        ? product.wholesalerId.toString()
+        : null;
+    const seller = sellerId ? sellerMap.get(sellerId) : null;
+
+    return {
+      ...obj,
+      sellerName: seller ? seller.name : null,
+      sellerRole: seller ? seller.role : null,
+      sellerAddress: seller ? seller.address : null,
+      sellerLocation: seller ? normalizeLocation(seller.location) : null
+    };
+  });
 };
 
 // Search products with advanced filters
@@ -70,45 +124,43 @@ router.get('/products', async (req, res) => {
       searchQuery.region = region;
     }
 
-    let products = await Product.find(searchQuery);
+    const productDocs = await Product.find(searchQuery);
+    let products = await enrichProductsWithSellerDetails(productDocs);
 
     // Location-based filtering
     if (location && maxDistance) {
       const [lat, lng] = location.split(',').map(Number);
-      const users = await User.find({
-        $or: [{ role: 'retailer' }, { role: 'wholesaler' }],
-        location: { $exists: true }
-      });
 
-      const productsWithDistance = products.map(product => {
-        let productLocation = null;
-        if (product.retailerId) {
-          const retailer = users.find(u => u._id.toString() === product.retailerId.toString());
-          if (retailer && retailer.location) {
-            productLocation = retailer.location;
+      products = products
+        .map(product => {
+          if (!product.sellerLocation) {
+            return { ...product, distance: null };
           }
-        }
-        if (product.wholesalerId) {
-          const wholesaler = users.find(u => u._id.toString() === product.wholesalerId.toString());
-          if (wholesaler && wholesaler.location) {
-            productLocation = wholesaler.location;
-          }
-        }
-        
-        if (productLocation) {
-          const distance = calculateDistance(lat, lng, productLocation.lat, productLocation.lng);
-          return { ...product.toObject(), distance };
-        }
-        return { ...product.toObject(), distance: null };
-      });
-
-      products = productsWithDistance
+          const distance = calculateDistance(lat, lng, product.sellerLocation.lat, product.sellerLocation.lng);
+          return { ...product, distance };
+        })
         .filter(p => p.distance !== null && p.distance <= parseFloat(maxDistance))
         .sort((a, b) => a.distance - b.distance);
     }
 
     // Sorting
-    if (sortBy === 'price-asc') {
+    if (sortBy === 'distance' && location && !maxDistance) {
+      const [lat, lng] = location.split(',').map(Number);
+      products = products
+        .map(product => {
+          if (!product.sellerLocation) {
+            return { ...product, distance: null };
+          }
+          const distance = calculateDistance(lat, lng, product.sellerLocation.lat, product.sellerLocation.lng);
+          return { ...product, distance };
+        })
+        .sort((a, b) => {
+          if (a.distance === null && b.distance === null) return 0;
+          if (a.distance === null) return 1;
+          if (b.distance === null) return -1;
+          return a.distance - b.distance;
+        });
+    } else if (sortBy === 'price-asc') {
       products.sort((a, b) => a.price - b.price);
     } else if (sortBy === 'price-desc') {
       products.sort((a, b) => b.price - a.price);
