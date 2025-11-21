@@ -199,11 +199,20 @@ router.post('/login', async (req, res) => {
     user.otpExpiry = undefined;
     await user.save();
 
+    // Ensure role is included and is a string
+    const userRole = user.role ? String(user.role).toLowerCase().trim() : null;
+    if (!userRole) {
+      console.error('Login error: User role is missing or invalid', { userId: user._id, role: user.role });
+      return res.status(500).json({ error: 'User role is missing' });
+    }
+
     const token = jwt.sign(
-      { userId: user._id, email: user.email, role: user.role },
+      { userId: user._id, email: user.email, role: userRole },
       process.env.JWT_SECRET || 'livemart-secret-key-change-in-production',
       { expiresIn: '7d' }
     );
+
+    console.log('Token created for login:', { userId: user._id, email: user.email, role: userRole });
 
     const userObj = user.toObject();
     delete userObj.password;
@@ -259,15 +268,19 @@ router.get('/google/callback',
   async (req, res) => {
     try {
       const user = req.user;
+      const userRole = user.role ? String(user.role).toLowerCase().trim() : 'customer';
       const token = jwt.sign(
-        { userId: user._id, email: user.email, role: user.role },
+        { userId: user._id, email: user.email, role: userRole },
         process.env.JWT_SECRET || 'livemart-secret-key-change-in-production',
         { expiresIn: '7d' }
       );
 
+      console.log('OAuth token created (Google):', { userId: user._id, email: user.email, role: userRole });
+
       // Redirect to frontend with token
       res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/auth/callback?token=${token}`);
     } catch (error) {
+      console.error('Google OAuth error:', error);
       res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/login?error=auth_failed`);
     }
   }
@@ -284,11 +297,14 @@ router.get('/facebook/callback',
   async (req, res) => {
     try {
       const user = req.user;
+      const userRole = user.role ? String(user.role).toLowerCase().trim() : 'customer';
       const token = jwt.sign(
-        { userId: user._id, email: user.email, role: user.role },
+        { userId: user._id, email: user.email, role: userRole },
         process.env.JWT_SECRET || 'livemart-secret-key-change-in-production',
         { expiresIn: '7d' }
       );
+
+      console.log('OAuth token created (Facebook):', { userId: user._id, email: user.email, role: userRole });
 
       res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/auth/callback?token=${token}`);
     } catch (error) {
