@@ -22,9 +22,29 @@ const authorizeRole = (...roles) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Insufficient permissions' });
+    
+    // Normalize role comparison (case-insensitive)
+    const userRole = req.user.role ? req.user.role.toLowerCase().trim() : null;
+    const allowedRoles = roles.map(role => role.toLowerCase().trim());
+    
+    if (!userRole) {
+      console.error('Authorization failed: No role found in user object', { user: req.user });
+      return res.status(403).json({ error: 'User role not found' });
     }
+    
+    if (!allowedRoles.includes(userRole)) {
+      console.error('Authorization failed:', {
+        userRole: userRole,
+        allowedRoles: allowedRoles,
+        userId: req.user.userId,
+        email: req.user.email
+      });
+      return res.status(403).json({ 
+        error: 'Insufficient permissions',
+        details: `Required role: ${roles.join(' or ')}, Your role: ${req.user.role}`
+      });
+    }
+    
     next();
   };
 };

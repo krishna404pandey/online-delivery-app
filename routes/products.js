@@ -190,9 +190,24 @@ router.post('/', authenticateToken, authorizeRole('retailer', 'wholesaler'), asy
   try {
     const { name, description, price, stock, category, image, availabilityDate, proxyWholesalerId, region } = req.body;
     
+    // Debug logging
+    console.log('Product creation request:', {
+      userRole: req.user.role,
+      userId: req.user.userId,
+      hasName: !!name,
+      hasPrice: !!price,
+      hasStock: stock !== undefined,
+      hasCategory: !!category
+    });
+    
     if (!name || !price || stock === undefined || !category) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+
+    // Normalize role for comparison (case-insensitive)
+    const userRole = req.user.role ? req.user.role.toLowerCase().trim() : null;
+    const isRetailer = userRole === 'retailer';
+    const isWholesaler = userRole === 'wholesaler';
 
     const newProduct = new Product({
       name,
@@ -202,9 +217,9 @@ router.post('/', authenticateToken, authorizeRole('retailer', 'wholesaler'), asy
       category,
       image: image || 'https://via.placeholder.com/300',
       availabilityDate: availabilityDate || new Date(),
-      retailerId: req.user.role === 'retailer' ? req.user.userId : null,
-      wholesalerId: req.user.role === 'wholesaler' ? req.user.userId : (proxyWholesalerId || null),
-      proxyAvailable: req.user.role === 'retailer' && proxyWholesalerId ? true : false,
+      retailerId: isRetailer ? req.user.userId : null,
+      wholesalerId: isWholesaler ? req.user.userId : (proxyWholesalerId || null),
+      proxyAvailable: isRetailer && proxyWholesalerId ? true : false,
       region: region || ''
     });
 
