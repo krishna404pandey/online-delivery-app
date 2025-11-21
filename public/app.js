@@ -9,8 +9,51 @@ let socket = null;
 let lastKnownLocation = null;
 let lastDisplayedProducts = [];
 
+// Theme Management
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    setTheme(savedTheme);
+}
+
+function setTheme(theme) {
+    const body = document.body;
+    const themeIcon = document.getElementById('themeIcon');
+    
+    if (theme === 'dark') {
+        body.classList.add('dark-mode');
+        if (themeIcon) {
+            themeIcon.className = 'fas fa-sun';
+        }
+        localStorage.setItem('theme', 'dark');
+    } else {
+        body.classList.remove('dark-mode');
+        if (themeIcon) {
+            themeIcon.className = 'fas fa-moon';
+        }
+        localStorage.setItem('theme', 'light');
+    }
+}
+
+window.toggleTheme = function() {
+    const currentTheme = localStorage.getItem('theme') || 'light';
+    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    
+    // Add a subtle animation effect
+    const themeToggle = document.getElementById('themeToggle');
+    if (themeToggle) {
+        themeToggle.style.transform = 'scale(0.9)';
+        setTimeout(() => {
+            themeToggle.style.transform = 'scale(1)';
+        }, 150);
+    }
+};
+
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize theme first
+    initTheme();
+    
     // Check if this is a payment success/cancel callback
     const urlParams = new URLSearchParams(window.location.search);
     const sessionId = urlParams.get('session_id');
@@ -35,6 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loadCategories();
         updateCartCount();
         initializeSocket();
+        initVoiceSearch();
     } else {
         // For OAuth callback, initialize basics first
         initializeSocket();
@@ -188,12 +232,30 @@ function showSection(sectionId) {
     }
 
     if (sectionId === 'products') {
+        // Always load ALL products when products section is shown
+        // Reset any filters to show all products
+        const searchInput = document.getElementById('searchInput');
+        const categoryFilter = document.getElementById('categoryFilter');
+        const minPrice = document.getElementById('minPrice');
+        const maxPrice = document.getElementById('maxPrice');
         const sortSelect = document.getElementById('productSort');
-        if (sortSelect && sortSelect.value === 'distance') {
-            handleProductSortChange();
-        } else {
-            loadProducts();
+        
+        // Clear ALL filters to show all products
+        if (searchInput) searchInput.value = '';
+        if (categoryFilter) categoryFilter.value = '';
+        if (minPrice) minPrice.value = '';
+        if (maxPrice) maxPrice.value = '';
+        if (sortSelect) {
+            sortSelect.value = 'default';
         }
+        
+        // Always load ALL products immediately when section is shown
+        // No filters, no stock filtering - show EVERYTHING
+        // Use requestAnimationFrame to ensure DOM is ready
+        requestAnimationFrame(() => {
+            // Force load all products without any filters
+            loadProducts();
+        });
     } else if (sectionId === 'cart') {
         loadCart();
     } else if (sectionId === 'orders') {
@@ -518,14 +580,25 @@ function logout() {
 // Products
 async function loadProducts(options = {}) {
     try {
+        // Show loading state
+        const grid = document.getElementById('productsGrid');
+        if (grid) {
+            grid.innerHTML = '<p style="text-align: center; padding: 2rem;">Loading products...</p>';
+        }
+
+        // Build URL - NO filters by default to show ALL products
         let url = `${API_BASE}/products`;
         const params = new URLSearchParams();
 
+        // Only add distance sorting if explicitly requested
         if (options.sortBy === 'distance' && options.lat && options.lng) {
             params.append('sortBy', 'distance');
             params.append('customerLat', options.lat);
             params.append('customerLng', options.lng);
         }
+
+        // DO NOT add inStock filter - we want ALL products including out of stock
+        // DO NOT add any other filters unless explicitly in options
 
         const queryString = params.toString();
         if (queryString) {
@@ -539,12 +612,33 @@ async function loadProducts(options = {}) {
             headers['Authorization'] = `Bearer ${token}`;
         }
 
+        console.log('Loading products from:', url);
         const res = await fetch(url, { headers });
+        
+        if (!res.ok) {
+            const errorText = await res.text();
+            console.error('Failed to load products:', res.status, errorText);
+            throw new Error(`Failed to load products: ${res.status}`);
+        }
+        
         const products = await res.json();
+        
+        if (!Array.isArray(products)) {
+            console.error('Invalid products response:', products);
+            throw new Error('Invalid products data received');
+        }
+        
+        console.log(`Loaded ${products.length} products`);
+        
+        // Always display all products - no filtering on frontend
         displayProducts(products);
     } catch (error) {
         console.error('Error loading products:', error);
-        showToast('Error loading products');
+        const grid = document.getElementById('productsGrid');
+        if (grid) {
+            grid.innerHTML = '<p style="text-align: center; padding: 2rem; color: var(--danger-color);">Error loading products. Please try again.</p>';
+        }
+        showToast('Error loading products', 'error');
     }
 }
 
@@ -857,12 +951,106 @@ async function submitFeedback(e, productId) {
     }
 }
 
+// Voice Search
+let recognition = null;
+let isListening = false;
+
+function initVoiceSearch() {
+    // Check if browser supports Web Speech API
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+
+        recognition.onstart = () => {
+            isListening = true;
+            const btn = document.getElementById('voiceSearchBtn');
+            const icon = document.getElementById('voiceIcon');
+            if (btn) {
+                btn.classList.add('listening');
+                if (icon) icon.className = 'fas fa-stop';
+            }
+            showToast('Listening... Speak now', 'info');
+        };
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) {
+                searchInput.value = transcript;
+                searchProducts();
+            }
+        };
+
+        recognition.onerror = (event) => {
+            console.error('Speech recognition error:', event.error);
+            if (event.error === 'no-speech') {
+                showToast('No speech detected. Please try again.', 'error');
+            } else if (event.error === 'not-allowed') {
+                showToast('Microphone permission denied. Please enable it in browser settings.', 'error');
+            } else {
+                showToast('Voice search error. Please try again.', 'error');
+            }
+            stopVoiceSearch();
+        };
+
+        recognition.onend = () => {
+            stopVoiceSearch();
+        };
+    }
+}
+
+function stopVoiceSearch() {
+    isListening = false;
+    const btn = document.getElementById('voiceSearchBtn');
+    const icon = document.getElementById('voiceIcon');
+    if (btn) {
+        btn.classList.remove('listening');
+        if (icon) icon.className = 'fas fa-microphone';
+    }
+    if (recognition && recognition.abort) {
+        recognition.abort();
+    }
+}
+
+window.toggleVoiceSearch = function() {
+    if (!recognition) {
+        initVoiceSearch();
+    }
+
+    if (!recognition) {
+        showToast('Voice search is not supported in your browser', 'error');
+        return;
+    }
+
+    if (isListening) {
+        recognition.stop();
+        stopVoiceSearch();
+    } else {
+        try {
+            recognition.start();
+        } catch (error) {
+            console.error('Error starting voice recognition:', error);
+            showToast('Error starting voice search. Please try again.', 'error');
+            stopVoiceSearch();
+        }
+    }
+};
+
 // Search
 async function searchProducts() {
     const query = document.getElementById('searchInput')?.value || '';
     const category = document.getElementById('categoryFilter')?.value || '';
     const minPrice = document.getElementById('minPrice')?.value || '';
     const maxPrice = document.getElementById('maxPrice')?.value || '';
+
+    // If all filters are empty, load all products instead of searching
+    if (!query && !category && !minPrice && !maxPrice) {
+        loadProducts();
+        return;
+    }
 
     let url = `${API_BASE}/search/products?`;
     if (query) url += `query=${encodeURIComponent(query)}&`;
@@ -872,10 +1060,18 @@ async function searchProducts() {
 
     try {
         const res = await fetch(url);
+        if (!res.ok) {
+            throw new Error(`Search failed: ${res.status}`);
+        }
         const products = await res.json();
+        if (!Array.isArray(products)) {
+            console.error('Invalid search response:', products);
+            throw new Error('Invalid search data received');
+        }
         displayProducts(products);
     } catch (error) {
-        showToast('Error searching products');
+        console.error('Error searching products:', error);
+        showToast('Error searching products', 'error');
     }
 }
 

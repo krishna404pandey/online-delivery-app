@@ -74,6 +74,48 @@ body {
     color: var(--primary-color);
 }
 
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.theme-toggle {
+    background: transparent;
+    border: 2px solid var(--primary-color);
+    border-radius: 50%;
+    width: 45px;
+    height: 45px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    color: var(--primary-color);
+    font-size: 1.2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.theme-toggle:hover {
+    background: var(--primary-color);
+    color: white;
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(255, 107, 157, 0.4);
+}
+
+.theme-toggle:active {
+    transform: scale(0.95);
+}
+
+.theme-toggle i {
+    transition: transform 0.3s ease;
+}
+
+.theme-toggle:hover i {
+    transform: rotate(15deg);
+}
+
 .nav-cart {
     position: relative;
     cursor: pointer;
@@ -296,6 +338,13 @@ body {
     gap: 1rem;
     flex-wrap: wrap;
     margin-top: 1rem;
+    align-items: center;
+}
+
+.search-filters > div:first-child {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
 }
 
 .search-filters input,
@@ -305,6 +354,65 @@ body {
     border-radius: 5px;
     flex: 1;
     min-width: 150px;
+}
+
+.voice-search-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0.5rem;
+    color: var(--primary-color);
+    font-size: 1.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    border-radius: 50%;
+    width: 35px;
+    height: 35px;
+    z-index: 10;
+}
+
+.voice-search-btn:hover {
+    background: rgba(255, 107, 157, 0.1);
+    transform: translateY(-50%) scale(1.1);
+}
+
+.voice-search-btn.listening {
+    background: var(--primary-color);
+    color: white;
+    animation: pulse 1.5s infinite;
+    transform: translateY(-50%);
+}
+
+.voice-search-btn.listening i {
+    color: white;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(255, 107, 157, 0.7);
+    }
+    50% {
+        box-shadow: 0 0 0 10px rgba(255, 107, 157, 0);
+    }
+}
+
+body.dark-mode .voice-search-btn {
+    color: var(--primary-color);
+}
+
+body.dark-mode .voice-search-btn:hover {
+    background: rgba(255, 107, 157, 0.2);
+}
+
+body.dark-mode .voice-search-btn.listening {
+    background: var(--primary-color);
+    color: white;
 }
 
 .products-grid {
@@ -848,5 +956,438 @@ body {
 .custom-marker {
     background: transparent !important;
     border: none !important;
+}
+
+/* ============================================
+   DARK MODE STYLES
+   ============================================ */
+
+body.dark-mode {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    background-attachment: fixed;
+    color: #e0e0e0;
+}
+
+body.dark-mode .navbar {
+    background: #1e1e2e;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    border-bottom: 1px solid #2a2a3e;
+}
+
+body.dark-mode .nav-link {
+    color: #e0e0e0;
+}
+
+body.dark-mode .nav-link:hover {
+    color: var(--primary-color);
+}
+
+body.dark-mode .theme-toggle {
+    border-color: #ff6b9d;
+    color: #ff6b9d;
+    background: rgba(255, 107, 157, 0.1);
+}
+
+body.dark-mode .theme-toggle:hover {
+    background: var(--primary-color);
+    color: white;
+    box-shadow: 0 4px 12px rgba(255, 107, 157, 0.6);
+}
+
+body.dark-mode .main-content {
+    color: #e0e0e0;
+}
+
+body.dark-mode .hero {
+    background: linear-gradient(135deg, #2d1b4e 0%, #1e3a5f 100%);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+body.dark-mode .feature-card {
+    background: #2a2a3e;
+    color: #e0e0e0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    border: 1px solid #3a3a4e;
+}
+
+body.dark-mode .feature-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 20px rgba(255, 107, 157, 0.2);
+    border-color: var(--primary-color);
+}
+
+body.dark-mode .auth-container {
+    background: #2a2a3e;
+    color: #e0e0e0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    border: 1px solid #3a3a4e;
+}
+
+body.dark-mode .auth-container h2 {
+    color: #ff6b9d;
+}
+
+body.dark-mode .form-group label {
+    color: #d0d0d0;
+}
+
+body.dark-mode input[type="text"],
+body.dark-mode input[type="email"],
+body.dark-mode input[type="password"],
+body.dark-mode input[type="tel"],
+body.dark-mode input[type="number"],
+body.dark-mode input[type="url"],
+body.dark-mode textarea,
+body.dark-mode select {
+    background: #1e1e2e;
+    color: #e0e0e0;
+    border: 1px solid #3a3a4e;
+}
+
+body.dark-mode input[type="text"]:focus,
+body.dark-mode input[type="email"]:focus,
+body.dark-mode input[type="password"]:focus,
+body.dark-mode input[type="tel"]:focus,
+body.dark-mode input[type="number"]:focus,
+body.dark-mode input[type="url"]:focus,
+body.dark-mode textarea:focus,
+body.dark-mode select:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(255, 107, 157, 0.1);
+    outline: none;
+}
+
+body.dark-mode input::placeholder,
+body.dark-mode textarea::placeholder {
+    color: #888;
+}
+
+body.dark-mode .btn-primary {
+    background: var(--gradient);
+    color: white;
+    box-shadow: 0 4px 15px rgba(255, 107, 157, 0.4);
+}
+
+body.dark-mode .btn-primary:hover {
+    box-shadow: 0 6px 20px rgba(255, 107, 157, 0.6);
+    transform: translateY(-2px);
+}
+
+body.dark-mode .btn-secondary {
+    background: #3a3a4e;
+    color: #e0e0e0;
+    border: 1px solid #4a4a5e;
+}
+
+body.dark-mode .btn-secondary:hover {
+    background: #4a4a5e;
+    border-color: var(--secondary-color);
+    color: var(--secondary-color);
+}
+
+body.dark-mode .product-card {
+    background: #2a2a3e;
+    color: #e0e0e0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    border: 1px solid #3a3a4e;
+}
+
+body.dark-mode .product-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 20px rgba(255, 107, 157, 0.2);
+    border-color: var(--primary-color);
+}
+
+body.dark-mode .product-name {
+    color: #e0e0e0;
+}
+
+body.dark-mode .product-price {
+    color: var(--primary-color);
+}
+
+body.dark-mode .product-stock {
+    color: #888;
+}
+
+body.dark-mode .product-stock.out {
+    color: #e74c3c;
+}
+
+body.dark-mode .products-header {
+    background: #2a2a3e;
+    color: #e0e0e0;
+    border: 1px solid #3a3a4e;
+}
+
+body.dark-mode .search-filters {
+    background: #2a2a3e;
+    border: 1px solid #3a3a4e;
+}
+
+body.dark-mode .cart-item {
+    background: #2a2a3e;
+    border: 1px solid #3a3a4e;
+    color: #e0e0e0;
+}
+
+body.dark-mode .order-card {
+    background: #2a2a3e;
+    border: 1px solid #3a3a4e;
+    color: #e0e0e0;
+}
+
+body.dark-mode .inventory-item {
+    background: #2a2a3e;
+    border: 1px solid #3a3a4e;
+    color: #e0e0e0;
+}
+
+body.dark-mode .inventory-form {
+    background: #2a2a3e;
+    border: 1px solid #3a3a4e;
+    color: #e0e0e0;
+}
+
+body.dark-mode .order-tracking {
+    background: #2a2a3e;
+    border: 1px solid #3a3a4e;
+    color: #e0e0e0;
+}
+
+body.dark-mode .tracking-step::before {
+    background: #3a3a4e;
+    border-color: #2a2a3e;
+}
+
+body.dark-mode .tracking-step.active::before {
+    background: var(--primary-color);
+}
+
+body.dark-mode .tracking-step.completed::before {
+    background: var(--secondary-color);
+}
+
+body.dark-mode .tracking-step::after {
+    background: #3a3a4e;
+}
+
+body.dark-mode .tracking-step.completed::after {
+    background: var(--secondary-color);
+}
+
+body.dark-mode .toast {
+    background: #2a2a3e;
+    color: #e0e0e0;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    border: 1px solid #3a3a4e;
+}
+
+body.dark-mode .section {
+    color: #e0e0e0;
+}
+
+body.dark-mode h1,
+body.dark-mode h2,
+body.dark-mode h3,
+body.dark-mode h4 {
+    color: #e0e0e0;
+}
+
+body.dark-mode p {
+    color: #d0d0d0;
+}
+
+body.dark-mode .auth-link {
+    color: #d0d0d0;
+}
+
+body.dark-mode .auth-link a {
+    color: var(--primary-color);
+}
+
+body.dark-mode .auth-link a:hover {
+    color: var(--accent-pink);
+}
+
+body.dark-mode .order-status {
+    color: #e0e0e0;
+}
+
+body.dark-mode .order-status.pending {
+    background: rgba(243, 156, 18, 0.2);
+    color: #f39c12;
+    border: 1px solid #f39c12;
+}
+
+body.dark-mode .order-status.processing {
+    background: rgba(52, 152, 219, 0.2);
+    color: #3498db;
+    border: 1px solid #3498db;
+}
+
+body.dark-mode .order-status.in_transit {
+    background: rgba(155, 89, 182, 0.2);
+    color: #9b59b6;
+    border: 1px solid #9b59b6;
+}
+
+body.dark-mode .order-status.delivered {
+    background: rgba(46, 204, 113, 0.2);
+    color: #2ecc71;
+    border: 1px solid #2ecc71;
+}
+
+body.dark-mode .order-status.cancelled {
+    background: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+    border: 1px solid #e74c3c;
+}
+
+body.dark-mode .order-status.completed {
+    background: rgba(46, 204, 113, 0.2);
+    color: #2ecc71;
+    border: 1px solid #2ecc71;
+}
+
+body.dark-mode #map,
+body.dark-mode #locationPickerMap {
+    border: 1px solid #3a3a4e;
+}
+
+/* Dark mode for Leaflet map */
+body.dark-mode .leaflet-container {
+    background: #1e1e2e;
+}
+
+body.dark-mode .leaflet-popup-content-wrapper {
+    background: #2a2a3e;
+    color: #e0e0e0;
+}
+
+body.dark-mode .leaflet-popup-tip {
+    background: #2a2a3e;
+}
+
+/* Smooth transition for theme switching */
+* {
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Keep gradients and important colors visible in dark mode */
+body.dark-mode .nav-logo,
+body.dark-mode .nav-cart i,
+body.dark-mode .feature-card i {
+    background: var(--gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Additional dark mode refinements */
+body.dark-mode .tab-btn {
+    background: #2a2a3e;
+    color: #e0e0e0;
+    border: 1px solid #3a3a4e;
+}
+
+body.dark-mode .tab-btn.active {
+    background: var(--gradient);
+    color: white;
+    border-color: transparent;
+}
+
+body.dark-mode .notify-btn {
+    background: #3a3a4e;
+    color: #e0e0e0;
+    border: 1px solid #4a4a5e;
+}
+
+body.dark-mode .notify-btn:hover {
+    background: #4a4a5e;
+    border-color: var(--secondary-color);
+    color: var(--secondary-color);
+}
+
+body.dark-mode .product-details {
+    background: #2a2a3e;
+    color: #e0e0e0;
+}
+
+body.dark-mode .product-details-image {
+    border: 1px solid #3a3a4e;
+}
+
+body.dark-mode .product-details-info {
+    color: #e0e0e0;
+}
+
+body.dark-mode .product-details-price {
+    color: var(--primary-color);
+}
+
+body.dark-mode .query-card {
+    background: #2a2a3e;
+    border: 1px solid #3a3a4e;
+    color: #e0e0e0;
+}
+
+body.dark-mode .query-card:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 4px 20px rgba(255, 107, 157, 0.2);
+}
+
+body.dark-mode .analytics-card {
+    background: #2a2a3e;
+    border: 1px solid #3a3a4e;
+    color: #e0e0e0;
+}
+
+body.dark-mode code,
+body.dark-mode pre {
+    background: #1e1e2e;
+    color: #e0e0e0;
+    border: 1px solid #3a3a4e;
+}
+
+body.dark-mode ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+body.dark-mode ::-webkit-scrollbar-track {
+    background: #1e1e2e;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb {
+    background: #3a3a4e;
+    border-radius: 5px;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb:hover {
+    background: #4a4a5e;
+}
+
+/* Smooth theme transition */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Ensure theme toggle is always visible and accessible */
+.theme-toggle {
+    z-index: 1001;
+}
+
+/* Dark mode for form validation messages */
+body.dark-mode .form-group small {
+    color: #888;
+}
+
+body.dark-mode .form-group input:invalid {
+    border-color: #e74c3c;
+}
+
+body.dark-mode .form-group input:valid {
+    border-color: #2ecc71;
 }
 
