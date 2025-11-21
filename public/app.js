@@ -748,8 +748,18 @@ async function showProductDetails(productId) {
     }
 }
 
-async function requestStockNotification(productId) {
+// Make requestStockNotification globally accessible for inline handlers
+window.requestStockNotification = async function(productId) {
+    // Check if user is logged in
     if (!currentUser) {
+        showToast('Please login to receive notifications', 'error');
+        showSection('login');
+        return;
+    }
+
+    // Check if token exists
+    const token = localStorage.getItem('token');
+    if (!token) {
         showToast('Please login to receive notifications', 'error');
         showSection('login');
         return;
@@ -760,21 +770,51 @@ async function requestStockNotification(productId) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify({ productId })
         });
 
         const contentType = res.headers.get('content-type') || '';
-        const data = contentType.includes('application/json') ? await res.json() : { message: await res.text() };
+        let data;
+        
+        try {
+            data = contentType.includes('application/json') ? await res.json() : { error: await res.text() };
+        } catch (parseError) {
+            console.error('Error parsing notification response:', parseError);
+            data = { error: 'Failed to parse server response' };
+        }
+
         if (res.ok) {
             showToast(data.message || 'We will notify you when the product is restocked', 'success');
         } else {
-            showToast(data.error || 'Unable to register notification', 'error');
+            // Handle authentication errors
+            if (res.status === 401 || res.status === 403) {
+                const errorMsg = data.error || 'Session expired';
+                if (errorMsg.includes('token') || errorMsg.includes('expired') || errorMsg.includes('Invalid')) {
+                    showToast('Your session has expired. Please login again.', 'error');
+                    // Clear invalid token and user data
+                    localStorage.removeItem('token');
+                    currentUser = null;
+                    updateNav();
+                    showSection('login');
+                    return;
+                }
+            }
+            showToast(data.error || data.message || 'Unable to register notification', 'error');
         }
     } catch (error) {
         console.error('Stock notification error:', error);
-        showToast('Error: ' + (error.message || 'Unable to register for notifications'), 'error');
+        // Check if it's a network error or authentication error
+        if (error.message && (error.message.includes('token') || error.message.includes('401') || error.message.includes('403'))) {
+            showToast('Authentication error. Please login again.', 'error');
+            localStorage.removeItem('token');
+            currentUser = null;
+            updateNav();
+            showSection('login');
+        } else {
+            showToast('Error: ' + (error.message || 'Unable to register for notifications'), 'error');
+        }
     }
 }
 
