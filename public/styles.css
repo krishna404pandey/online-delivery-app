@@ -324,6 +324,7 @@ body {
 
 .product-card:hover {
     transform: translateY(-5px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
 }
 
 .product-image {
@@ -365,6 +366,13 @@ body {
     display: flex;
     align-items: center;
     gap: 0.35rem;
+}
+
+.product-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
 }
 
 .product-stock.out {

@@ -563,10 +563,13 @@ function displayProducts(products) {
                 </div>
                 ${typeof product.distance === 'number' ? `<div class="product-distance"><i class="fas fa-route"></i> ${product.distance.toFixed(1)} km away</div>` : ''}
                 ${product.averageRating > 0 ? `<div style="font-size: 0.9rem; color: #f39c12;">⭐ ${product.averageRating.toFixed(1)}</div>` : ''}
-                <button class="btn-add-cart" ${product.stock === 0 ? 'disabled' : ''} 
-                    onclick="event.stopPropagation(); addToCart('${productId}', '${product.name}', ${product.price})">
-                    Add to Cart
-                </button>
+                <div class="product-card-actions">
+                    <button class="btn-add-cart" ${product.stock === 0 ? 'disabled' : ''} 
+                        onclick="event.stopPropagation(); addToCart('${productId}', '${product.name}', ${product.price})">
+                        Add to Cart
+                    </button>
+                    ${product.stock === 0 ? `<button class="btn-secondary notify-btn" onclick="event.stopPropagation(); requestStockNotification('${productId}')">Notify Me</button>` : ''}
+                </div>
             </div>
         </div>
     `;
@@ -703,10 +706,13 @@ async function showProductDetails(productId) {
                     <p><strong>Category:</strong> ${product.category}</p>
                     <p><strong>Stock:</strong> ${product.stock > 0 ? `${product.stock} available` : 'Out of stock'}</p>
                     <p><strong>Rating:</strong> ${avgRating} ⭐</p>
-                    <button class="btn-primary" ${product.stock === 0 ? 'disabled' : ''} 
-                        onclick="addToCart('${productIdNormalized}', '${product.name}', ${product.price})">
-                        Add to Cart
-                    </button>
+                    <div class="product-details-actions">
+                        <button class="btn-primary" ${product.stock === 0 ? 'disabled' : ''} 
+                            onclick="addToCart('${productIdNormalized}', '${product.name}', ${product.price})">
+                            Add to Cart
+                        </button>
+                        ${product.stock === 0 ? `<button class="btn-secondary notify-btn" onclick="requestStockNotification('${productIdNormalized}')">Notify Me When Back</button>` : ''}
+                    </div>
                     <h3 style="margin-top: 2rem;">Customer Reviews</h3>
                     <div id="productFeedback">
                         ${reviewsHtml}
@@ -739,6 +745,36 @@ async function showProductDetails(productId) {
         showSection('product-details');
     } catch (error) {
         showToast('Error loading product details');
+    }
+}
+
+async function requestStockNotification(productId) {
+    if (!currentUser) {
+        showToast('Please login to receive notifications', 'error');
+        showSection('login');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/notifications/subscribe`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({ productId })
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        const data = contentType.includes('application/json') ? await res.json() : { message: await res.text() };
+        if (res.ok) {
+            showToast(data.message || 'We will notify you when the product is restocked', 'success');
+        } else {
+            showToast(data.error || 'Unable to register notification', 'error');
+        }
+    } catch (error) {
+        console.error('Stock notification error:', error);
+        showToast('Error: ' + (error.message || 'Unable to register for notifications'), 'error');
     }
 }
 
