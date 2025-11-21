@@ -17,16 +17,19 @@ function initTheme() {
 
 function setTheme(theme) {
     const body = document.body;
+    const html = document.documentElement;
     const themeIcon = document.getElementById('themeIcon');
     
     if (theme === 'dark') {
         body.classList.add('dark-mode');
+        html.classList.add('dark-mode');
         if (themeIcon) {
             themeIcon.className = 'fas fa-sun';
         }
         localStorage.setItem('theme', 'dark');
     } else {
         body.classList.remove('dark-mode');
+        html.classList.remove('dark-mode');
         if (themeIcon) {
             themeIcon.className = 'fas fa-moon';
         }
