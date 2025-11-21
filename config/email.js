@@ -219,6 +219,58 @@ const sendDeliveryConfirmation = async (email, order) => {
   }
 };
 
-module.exports = { sendOTP, sendOrderConfirmation, sendDeliveryConfirmation };
+const sendRestockNotification = async (email, product) => {
+  if (!transporter) {
+    console.log(`📧 Restock notification would be sent to ${email} (email not configured)`);
+    return false;
+  }
+
+  try {
+    const productId = product._id ? product._id.toString() : product.id ? product.id.toString() : 'N/A';
+    const productIdShort = productId !== 'N/A' ? productId.substring(0, 8) : 'N/A';
+    
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: `Live Mart - ${product.name} is Back in Stock!`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background: linear-gradient(135deg, #ff6b9d 0%, #4a90e2 100%); padding: 20px; border-radius: 10px 10px 0 0;">
+            <h2 style="color: white; margin: 0;">Live Mart</h2>
+          </div>
+          <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px;">
+            <h3 style="color: #333; margin-top: 0;">Great News! Your Product is Back in Stock</h3>
+            <p style="color: #666; font-size: 16px;">The product you were waiting for is now available!</p>
+            <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+              <h4 style="color: #4a90e2; margin-top: 0;">${product.name}</h4>
+              <p style="color: #666; margin: 10px 0;"><strong>Price:</strong> ₹${product.price.toFixed(2)}</p>
+              <p style="color: #666; margin: 10px 0;"><strong>Stock Available:</strong> ${product.stock} units</p>
+              ${product.description ? `<p style="color: #666; margin: 10px 0;">${product.description}</p>` : ''}
+            </div>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}" 
+                 style="background: #4a90e2; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">
+                Shop Now
+              </a>
+            </div>
+            <p style="color: #999; font-size: 12px; margin-top: 20px;">
+              You received this email because you requested to be notified when this product is back in stock.
+            </p>
+          </div>
+        </div>
+      `,
+      text: `Great News! ${product.name} is Back in Stock!\n\nPrice: ₹${product.price.toFixed(2)}\nStock Available: ${product.stock} units\n\nVisit our store to purchase now!\n\nYou received this email because you requested to be notified when this product is back in stock.`
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Restock notification sent successfully to ${email} for product ${product.name}`);
+    return true;
+  } catch (error) {
+    console.error('Error sending restock notification:', error);
+    return false;
+  }
+};
+
+module.exports = { sendOTP, sendOrderConfirmation, sendDeliveryConfirmation, sendRestockNotification };
 
 

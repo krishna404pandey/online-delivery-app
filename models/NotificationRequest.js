@@ -18,6 +18,10 @@ const notificationSchema = new mongoose.Schema({
   notified: {
     type: Boolean,
     default: false
+  },
+  notifiedAt: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true

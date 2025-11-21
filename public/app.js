@@ -1663,24 +1663,131 @@ async function loadInventoryList() {
             return;
         }
 
-        list.innerHTML = products.map(product => `
+        list.innerHTML = products.map(product => {
+            const productId = (product._id || product.id || '').toString();
+            return `
             <div class="inventory-item">
                 <div>
                     <h4>${product.name}</h4>
-                    <p>₹${product.price.toFixed(2)} | Stock: ${product.stock}</p>
+                    <p>₹${product.price.toFixed(2)} | Stock: ${product.stock} ${product.stock === 0 ? '<span style="color: red;">(Out of Stock)</span>' : ''}</p>
+                    ${product.category ? `<p style="color: #666; font-size: 0.9rem;">Category: ${product.category}</p>` : ''}
                 </div>
                 <div>
-                    <button class="btn-primary" onclick="editProduct('${product.id}')">Edit</button>
-                    <button class="btn-secondary" onclick="deleteProduct('${product.id}')">Delete</button>
+                    <button class="btn-primary" onclick="editProduct('${productId}')">Edit/Restock</button>
+                    <button class="btn-secondary" onclick="deleteProduct('${productId}')">Delete</button>
                 </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
     } catch (error) {
         showToast('Error loading inventory');
     }
 }
 
-async function deleteProduct(productId) {
+// Make editProduct globally accessible for inline handlers
+window.editProduct = async function(productId) {
+    if (!currentUser) return;
+
+    try {
+        // Fetch product details
+        const res = await fetch(`${API_BASE}/products/${productId}`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+
+        if (!res.ok) {
+            showToast('Error loading product details', 'error');
+            return;
+        }
+
+        const product = await res.json();
+
+        // Create edit form modal
+        const content = document.getElementById('dashboardContent');
+        if (!content) return;
+
+        content.innerHTML = `
+            <div class="inventory-form" style="max-width: 600px; margin: 0 auto;">
+                <h3>Edit Product / Restock</h3>
+                <form onsubmit="updateProduct(event, '${productId}')">
+                    <div class="form-group">
+                        <label>Name</label>
+                        <input type="text" id="editProductName" value="${product.name || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea id="editProductDescription">${product.description || ''}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Price (₹)</label>
+                        <input type="number" step="0.01" id="editProductPrice" value="${product.price || 0}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Stock Quantity</label>
+                        <input type="number" id="editProductStock" value="${product.stock || 0}" required min="0">
+                        ${product.stock === 0 ? '<p style="color: #4a90e2; font-size: 0.9rem; margin-top: 0.5rem;">💡 Restocking this item will notify customers who requested notifications!</p>' : ''}
+                    </div>
+                    <div class="form-group">
+                        <label>Category</label>
+                        <input type="text" id="editProductCategory" value="${product.category || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Image URL</label>
+                        <input type="url" id="editProductImage" value="${product.image || 'https://via.placeholder.com/300'}">
+                    </div>
+                    <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                        <button type="submit" class="btn-primary">Update Product</button>
+                        <button type="button" class="btn-secondary" onclick="loadInventory()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        `;
+    } catch (error) {
+        showToast('Error loading product: ' + error.message, 'error');
+    }
+}
+
+// Make updateProduct globally accessible for inline handlers
+window.updateProduct = async function(e, productId) {
+    e.preventDefault();
+    if (!currentUser) return;
+
+    const productData = {
+        name: document.getElementById('editProductName').value,
+        description: document.getElementById('editProductDescription').value,
+        price: parseFloat(document.getElementById('editProductPrice').value),
+        stock: parseInt(document.getElementById('editProductStock').value),
+        category: document.getElementById('editProductCategory').value,
+        image: document.getElementById('editProductImage').value
+    };
+
+    try {
+        const res = await fetch(`${API_BASE}/products/${productId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify(productData)
+        });
+
+        if (res.ok) {
+            const updatedProduct = await res.json();
+            showToast('Product updated successfully!');
+            if (updatedProduct.stock > 0 && productData.stock > 0) {
+                showToast('Customers who requested notifications will be notified!', 'info');
+            }
+            loadInventory();
+        } else {
+            const error = await res.json();
+            showToast(error.error || 'Error updating product', 'error');
+        }
+    } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+    }
+}
+
+// Make deleteProduct globally accessible for inline handlers
+window.deleteProduct = async function(productId) {
     if (!confirm('Delete this product?')) return;
 
     try {

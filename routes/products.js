@@ -3,6 +3,8 @@ const router = express.Router();
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const Product = require('../models/Product');
 const User = require('../models/User');
+const NotificationRequest = require('../models/NotificationRequest');
+const { sendRestockNotification } = require('../config/email');
 
 const normalizeLocation = (location) => {
   if (
@@ -206,6 +208,10 @@ router.put('/:id', authenticateToken, authorizeRole('retailer', 'wholesaler'), a
 
     const { name, description, price, stock, category, image, availabilityDate, region } = req.body;
     
+    // Track if stock changed from 0 to > 0 (restock)
+    const wasOutOfStock = product.stock === 0;
+    const previousStock = product.stock;
+    
     if (name) product.name = name;
     if (description !== undefined) product.description = description;
     if (price !== undefined) product.price = parseFloat(price);
@@ -216,6 +222,36 @@ router.put('/:id', authenticateToken, authorizeRole('retailer', 'wholesaler'), a
     if (region) product.region = region;
 
     await product.save();
+
+    // Check if product was restocked (went from 0 to > 0)
+    if (wasOutOfStock && product.stock > 0) {
+      // Find all notification requests for this product that haven't been notified yet
+      const notificationRequests = await NotificationRequest.find({
+        productId: product._id,
+        notified: false
+      }).populate('userId', 'email name');
+
+      // Send notifications to all customers who requested to be notified
+      for (const notification of notificationRequests) {
+        try {
+          const email = notification.email || (notification.userId?.email);
+          if (email) {
+            await sendRestockNotification(email, product);
+            // Mark as notified
+            notification.notified = true;
+            notification.notifiedAt = new Date();
+            await notification.save();
+          }
+        } catch (error) {
+          console.error(`Error sending restock notification to ${notification.email}:`, error);
+          // Continue with other notifications even if one fails
+        }
+      }
+
+      if (notificationRequests.length > 0) {
+        console.log(`✅ Sent restock notifications to ${notificationRequests.length} customer(s) for product ${product.name}`);
+      }
+    }
 
     // Emit real-time update
     const io = req.app.get('io');
