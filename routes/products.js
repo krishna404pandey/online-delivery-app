@@ -78,6 +78,23 @@ router.get('/', async (req, res) => {
   try {
     const { category, minPrice, maxPrice, inStock, retailerId, wholesalerId, region, sortBy, customerLat, customerLng } = req.query;
     
+    // Get user role from token if available (optional authentication)
+    let userRole = null;
+    try {
+      const authHeader = req.headers['authorization'];
+      if (authHeader) {
+        const token = authHeader.split(' ')[1];
+        if (token) {
+          const jwt = require('jsonwebtoken');
+          const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-change-in-production');
+          userRole = decoded.role;
+        }
+      }
+    } catch (err) {
+      // Token not provided or invalid - treat as customer
+      userRole = null;
+    }
+    
     let query = {};
 
     if (category) {
@@ -103,7 +120,23 @@ router.get('/', async (req, res) => {
     }
 
     const productDocs = await Product.find(query).sort({ createdAt: -1 });
-    let products = await enrichProductsWithSellerDetails(productDocs);
+    
+    // Filter products based on user role:
+    // - Customers: Only see retailer products and proxy products
+    // - Retailers: See all products (retailer products, wholesaler products, and proxy products)
+    // - Wholesalers: See all products
+    let filteredProducts = productDocs;
+    if (userRole === 'customer' || !userRole) {
+      // Customers can only see:
+      // 1. Products owned by retailers (retailerId exists, proxyAvailable is false)
+      // 2. Proxy products (proxyAvailable is true)
+      filteredProducts = productDocs.filter(product => {
+        return (product.retailerId && !product.proxyAvailable) || product.proxyAvailable;
+      });
+    }
+    // Retailers and wholesalers can see all products (no filtering needed)
+
+    let products = await enrichProductsWithSellerDetails(filteredProducts);
 
     if (sortBy === 'distance' && customerLat && customerLng) {
       const lat = parseFloat(customerLat);
@@ -315,6 +348,113 @@ router.get('/proxy/:retailerId', async (req, res) => {
     });
     res.json(products);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get wholesaler products (for retailers to purchase)
+router.get('/wholesaler/list', authenticateToken, authorizeRole('retailer'), async (req, res) => {
+  try {
+    // Get all products from wholesalers (not proxy products)
+    const products = await Product.find({
+      wholesalerId: { $exists: true, $ne: null },
+      proxyAvailable: false
+    }).sort({ createdAt: -1 });
+    
+    const enrichedProducts = await enrichProductsWithSellerDetails(products);
+    res.json(enrichedProducts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Purchase from wholesaler (Retailer only)
+router.post('/purchase-from-wholesaler', authenticateToken, authorizeRole('retailer'), async (req, res) => {
+  try {
+    const { items } = req.body; // [{ productId, quantity }]
+    
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Items are required' });
+    }
+
+    // Validate all products exist and are from wholesalers
+    const productIds = items.map(item => item.productId);
+    const products = await Product.find({ _id: { $in: productIds } });
+
+    if (products.length !== items.length) {
+      return res.status(400).json({ error: 'Some products not found' });
+    }
+
+    // Check all products are from wholesalers
+    for (const product of products) {
+      if (!product.wholesalerId || product.proxyAvailable) {
+        return res.status(400).json({ error: `Product ${product.name} is not available for purchase from wholesaler` });
+      }
+      if (product.stock <= 0) {
+        return res.status(400).json({ error: `Product ${product.name} is out of stock` });
+      }
+    }
+
+    // Check stock availability
+    const retailerProducts = [];
+    for (const item of items) {
+      const product = products.find(p => p._id.toString() === item.productId);
+      if (!product) {
+        return res.status(400).json({ error: 'Product not found' });
+      }
+      if (product.stock < item.quantity) {
+        return res.status(400).json({ error: `Insufficient stock for ${product.name}` });
+      }
+
+      // Check if retailer already has this product
+      let retailerProduct = await Product.findOne({
+        retailerId: req.user.userId,
+        name: product.name,
+        category: product.category,
+        // Match by name and category to avoid duplicates
+      });
+
+      if (retailerProduct) {
+        // Update existing product stock
+        retailerProduct.stock += item.quantity;
+        retailerProduct.price = product.price; // Update price to match wholesaler
+        await retailerProduct.save();
+      } else {
+        // Create new product for retailer
+        retailerProduct = new Product({
+          name: product.name,
+          description: product.description,
+          price: product.price, // Retailer can set their own price later
+          stock: item.quantity,
+          category: product.category,
+          image: product.image,
+          retailerId: req.user.userId,
+          wholesalerId: null, // This is now a retailer product
+          proxyAvailable: false,
+          region: product.region || ''
+        });
+        await retailerProduct.save();
+      }
+
+      // Update wholesaler product stock
+      product.stock -= item.quantity;
+      await product.save();
+
+      retailerProducts.push(retailerProduct);
+    }
+
+    // Emit real-time update
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('products-purchased', { retailerId: req.user.userId, products: retailerProducts });
+    }
+
+    res.status(201).json({
+      message: 'Products purchased successfully and added to your inventory',
+      products: retailerProducts
+    });
+  } catch (error) {
+    console.error('Purchase from wholesaler error:', error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -1620,8 +1620,14 @@ function loadInventory() {
         </div>
         ${isRetailer ? `
             <div style="margin: 2rem 0; padding: 1.5rem; background: var(--light-color); border-radius: 10px;">
+                <h3>Purchase from Wholesalers</h3>
+                <p style="margin-bottom: 1rem;">Browse and purchase products from wholesalers to add to your inventory</p>
+                <button class="btn-primary" onclick="loadWholesalerProducts()">Browse Wholesaler Products</button>
+                <div id="wholesalerProductsList" style="margin-top: 1rem;"></div>
+            </div>
+            <div style="margin: 2rem 0; padding: 1.5rem; background: var(--light-color); border-radius: 10px;">
                 <h3>Proxy Products (Available via Wholesalers)</h3>
-                <p style="margin-bottom: 1rem;">Show products available from wholesalers to your customers</p>
+                <p style="margin-bottom: 1rem;">Show products available from wholesalers to your customers without purchasing</p>
                 <button class="btn-primary" onclick="loadProxyProducts()">View Proxy Products</button>
                 <div id="proxyProductsList" style="margin-top: 1rem;"></div>
             </div>
