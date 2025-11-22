@@ -37,25 +37,167 @@ function setTheme(theme) {
     }
 }
 
+// Color Theme Functions
+function initColorTheme() {
+    const savedColorTheme = localStorage.getItem('colorTheme') || 'original';
+    setColorTheme(savedColorTheme);
+}
+
+function setColorTheme(color) {
+    const body = document.body;
+    const colorOptions = document.querySelectorAll('.color-option');
+    
+    // Remove all color theme classes
+    body.classList.remove('color-theme-original', 'color-theme-blue');
+    
+    // Add selected color theme
+    body.classList.add(`color-theme-${color}`);
+    
+    // Update active state for old menu (if exists)
+    colorOptions.forEach(option => {
+        option.classList.remove('active');
+        if (option.dataset.color === color) {
+            option.classList.add('active');
+        }
+    });
+    
+    localStorage.setItem('colorTheme', color);
+    
+    // Update combined menu
+    updateCombinedMenuColor(color);
+    
+    // Close old menu if exists
+    const oldMenu = document.getElementById('colorThemeMenu');
+    if (oldMenu) {
+        oldMenu.style.display = 'none';
+    }
+}
+
+window.toggleColorTheme = function() {
+    const menu = document.getElementById('colorThemeMenu');
+    if (menu) {
+        const isVisible = menu.style.display !== 'none';
+        menu.style.display = isVisible ? 'none' : 'flex';
+    }
+};
+
+window.setColorTheme = setColorTheme;
+
+// Close color theme menu when clicking outside
+document.addEventListener('click', function(event) {
+    const selector = document.getElementById('colorThemeSelector');
+    const menu = document.getElementById('colorThemeMenu');
+    if (selector && menu && !selector.contains(event.target)) {
+        menu.style.display = 'none';
+    }
+});
+
 window.toggleTheme = function() {
     const currentTheme = localStorage.getItem('theme') || 'light';
     const newTheme = currentTheme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
+    updateCombinedMenuTheme();
     
     // Add a subtle animation effect
-    const themeToggle = document.getElementById('themeToggle');
-    if (themeToggle) {
-        themeToggle.style.transform = 'scale(0.9)';
-        setTimeout(() => {
-            themeToggle.style.transform = 'scale(1)';
-        }, 150);
+    const combinedBtn = document.getElementById('combinedThemeToggle');
+    if (combinedBtn) {
+        const btn = combinedBtn.querySelector('.combined-theme-btn');
+        if (btn) {
+            btn.style.transform = 'scale(0.9)';
+            setTimeout(() => {
+                btn.style.transform = 'scale(1)';
+            }, 150);
+        }
     }
 };
+
+// Combined Theme Menu Functions
+window.toggleCombinedMenu = function() {
+    const menu = document.getElementById('combinedThemeMenu');
+    if (menu) {
+        const isVisible = menu.style.display !== 'none';
+        menu.style.display = isVisible ? 'none' : 'block';
+        updateCombinedMenuTheme();
+    }
+};
+
+window.toggleThemeFromMenu = function() {
+    toggleTheme();
+    // Don't close menu, just update it
+};
+
+window.setColorThemeFromMenu = function(color) {
+    setColorTheme(color);
+    updateCombinedMenuColor(color);
+    // Don't close menu
+};
+
+function updateCombinedMenuTheme() {
+    const currentTheme = localStorage.getItem('theme') || 'light';
+    const themeIcon = document.getElementById('themeMenuIcon');
+    const themeText = document.getElementById('themeMenuText');
+    
+    if (themeIcon && themeText) {
+        if (currentTheme === 'dark') {
+            themeIcon.className = 'fas fa-sun';
+            themeText.textContent = 'Light Mode';
+        } else {
+            themeIcon.className = 'fas fa-moon';
+            themeText.textContent = 'Dark Mode';
+        }
+    }
+}
+
+function updateCombinedMenuColor(color) {
+    const originalOption = document.getElementById('colorOriginalOption');
+    const blueOption = document.getElementById('colorBlueOption');
+    
+    if (originalOption) originalOption.classList.remove('active');
+    if (blueOption) blueOption.classList.remove('active');
+    
+    if (color === 'original' && originalOption) {
+        originalOption.classList.add('active');
+    } else if (color === 'blue' && blueOption) {
+        blueOption.classList.add('active');
+    }
+}
+
+// Close combined menu when clicking outside
+document.addEventListener('click', function(event) {
+    const toggle = document.getElementById('combinedThemeToggle');
+    const menu = document.getElementById('combinedThemeMenu');
+    if (toggle && menu && !toggle.contains(event.target)) {
+        menu.style.display = 'none';
+    }
+});
+
+// Initialize combined menu on load
+function initCombinedMenu() {
+    const savedColorTheme = localStorage.getItem('colorTheme') || 'original';
+    updateCombinedMenuTheme();
+    updateCombinedMenuColor(savedColorTheme);
+}
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize theme first
     initTheme();
+    initColorTheme();
+    initCombinedMenu();
+    
+    // Initialize calendar reminders check (every 5 minutes)
+    setInterval(() => {
+        if (currentUser && currentUser.role === 'customer') {
+            checkDeliveryReminders();
+        }
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    // Check reminders on page load
+    setTimeout(() => {
+        if (currentUser && currentUser.role === 'customer') {
+            checkDeliveryReminders();
+        }
+    }, 2000);
     
     // Check if this is a payment success/cancel callback
     const urlParams = new URLSearchParams(window.location.search);
@@ -201,6 +343,7 @@ function updateNav() {
     document.getElementById('profileLink').style.display = isLoggedIn ? 'block' : 'none';
     document.getElementById('logoutLink').style.display = isLoggedIn ? 'block' : 'none';
     document.getElementById('ordersLink').style.display = (isLoggedIn && currentUser.role === 'customer') ? 'block' : 'none';
+    document.getElementById('calendarLink').style.display = (isLoggedIn && currentUser.role === 'customer') ? 'block' : 'none';
     document.getElementById('queriesLink').style.display = (isLoggedIn && currentUser.role === 'customer') ? 'block' : 'none';
     document.getElementById('dashboardLink').style.display = (isLoggedIn && (currentUser.role === 'retailer' || currentUser.role === 'wholesaler')) ? 'block' : 'none';
 }
@@ -260,9 +403,14 @@ function showSection(sectionId) {
             loadProducts();
         });
     } else if (sectionId === 'cart') {
-        loadCart();
+        // Ensure cart section is properly displayed
+        setTimeout(() => {
+            loadCart();
+        }, 50);
     } else if (sectionId === 'orders') {
         loadOrders();
+    } else if (sectionId === 'calendar') {
+        loadCalendar();
     } else if (sectionId === 'queries') {
         loadQueries();
     } else if (sectionId === 'dashboard') {
@@ -1143,13 +1291,26 @@ function loadCart() {
     const content = document.getElementById('cartContent');
     if (!content) return;
 
+    // Force grid display to ensure all items are visible in grid layout
+    content.style.display = 'grid';
+    content.style.gridTemplateColumns = 'repeat(4, 1fr)';
+    content.style.gap = '1.5rem';
+    content.style.overflowY = 'auto';
+    content.style.overflowX = 'hidden';
+    content.style.width = '100%';
+
     if (cart.length === 0) {
-        content.innerHTML = '<p>Your cart is empty</p>';
+        content.innerHTML = '<p style="grid-column: 1 / -1; text-align: center; padding: 2rem; color: #64748b;">Your cart is empty</p>';
+        // Remove total section if cart is empty
+        const totalSection = document.getElementById('cartTotalSection');
+        if (totalSection) {
+            totalSection.remove();
+        }
         return;
     }
 
     let total = 0;
-    content.innerHTML = cart.map((item, index) => {
+    const cartItemsHTML = cart.map((item, index) => {
         const itemTotal = item.price * item.quantity;
         total += itemTotal;
         return `
@@ -1157,6 +1318,7 @@ function loadCart() {
                 <div class="cart-item-info">
                     <h3>${item.name}</h3>
                     <p>₹${item.price.toFixed(2)} x ${item.quantity}</p>
+                    <p style="font-weight: 600; color: var(--primary-color); margin-top: 0.5rem;">Subtotal: ₹${itemTotal.toFixed(2)}</p>
                 </div>
                 <div class="cart-item-actions">
                     <div class="quantity-control">
@@ -1164,16 +1326,34 @@ function loadCart() {
                         <span>${item.quantity}</span>
                         <button class="quantity-btn" onclick="updateCartQuantity(${index}, 1)">+</button>
                     </div>
-                    <button class="btn-primary" onclick="removeFromCart(${index})">Remove</button>
+                    <button class="btn-primary" onclick="removeFromCart(${index})" style="width: 100%;">Remove</button>
                 </div>
             </div>
         `;
-    }).join('') + `
-        <div class="cart-total">
+    }).join('');
+    
+    // Set cart items in grid - ALL items will be displayed
+    content.innerHTML = cartItemsHTML;
+    
+    // Add total section after the cart content container
+    const cartSection = document.getElementById('cart');
+    if (cartSection) {
+        // Remove existing total section if any
+        let totalSection = document.getElementById('cartTotalSection');
+        if (totalSection) {
+            totalSection.remove();
+        }
+        
+        // Create new total section
+        totalSection = document.createElement('div');
+        totalSection.id = 'cartTotalSection';
+        totalSection.className = 'cart-total';
+        totalSection.innerHTML = `
             <h3>Total: ₹${total.toFixed(2)}</h3>
-            <button class="btn-primary" onclick="placeOrder()">Place Order</button>
-        </div>
-    `;
+            <button class="btn-primary" onclick="placeOrder()" style="width: 100%; max-width: 300px; margin: 0 auto;">Place Order</button>
+        `;
+        cartSection.appendChild(totalSection);
+    }
 }
 
 function updateCartQuantity(index, change) {
@@ -3242,4 +3422,224 @@ function showToast(message, type = 'success') {
         toast.classList.remove('show');
     }, 3000);
 }
+
+// Calendar Functions
+let currentCalendarDate = new Date();
+let calendarOrders = [];
+
+async function loadCalendar() {
+    if (!currentUser) {
+        showToast('Please login to view calendar');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/orders`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+        const orders = await res.json();
+        calendarOrders = orders.filter(order => {
+            const deliveryDate = order.deliveryDetails?.estimatedDelivery || order.scheduledDate;
+            return deliveryDate && order.status !== 'delivered' && order.status !== 'cancelled';
+        });
+        renderCalendar();
+        checkDeliveryReminders();
+    } catch (error) {
+        console.error('Error loading calendar:', error);
+        showToast('Error loading calendar', 'error');
+    }
+}
+
+function renderCalendar() {
+    const grid = document.getElementById('calendarGrid');
+    const monthYear = document.getElementById('calendarMonthYear');
+    if (!grid || !monthYear) return;
+
+    const year = currentCalendarDate.getFullYear();
+    const month = currentCalendarDate.getMonth();
+    
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                       'July', 'August', 'September', 'October', 'November', 'December'];
+    monthYear.textContent = `${monthNames[month]} ${year}`;
+
+    // Get first day of month and number of days
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Clear grid
+    grid.innerHTML = '';
+
+    // Add day headers
+    const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    dayHeaders.forEach(day => {
+        const header = document.createElement('div');
+        header.className = 'calendar-day-header';
+        header.textContent = day;
+        grid.appendChild(header);
+    });
+
+    // Add empty cells for days before month starts
+    for (let i = 0; i < firstDay; i++) {
+        const empty = document.createElement('div');
+        empty.className = 'calendar-day empty';
+        grid.appendChild(empty);
+    }
+
+    // Add days of month
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dayCell = document.createElement('div');
+        dayCell.className = 'calendar-day';
+        
+        const cellDate = new Date(year, month, day);
+        cellDate.setHours(0, 0, 0, 0);
+        
+        // Check if today
+        if (cellDate.getTime() === today.getTime()) {
+            dayCell.classList.add('today');
+        }
+
+        // Find orders for this date
+        const dayOrders = calendarOrders.filter(order => {
+            const deliveryDate = order.deliveryDetails?.estimatedDelivery || order.scheduledDate;
+            if (!deliveryDate) return false;
+            const orderDate = new Date(deliveryDate);
+            orderDate.setHours(0, 0, 0, 0);
+            return orderDate.getTime() === cellDate.getTime();
+        });
+
+        // Add day number
+        const dayNumber = document.createElement('div');
+        dayNumber.className = 'calendar-day-number';
+        dayNumber.textContent = day;
+        dayCell.appendChild(dayNumber);
+
+        // Add order indicators
+        if (dayOrders.length > 0) {
+            const ordersContainer = document.createElement('div');
+            ordersContainer.className = 'calendar-orders';
+            
+            dayOrders.forEach(order => {
+                const orderDot = document.createElement('div');
+                orderDot.className = `calendar-order-dot ${order.status}`;
+                orderDot.title = `${order.items.length} item(s) - ${order.status}`;
+                orderDot.onclick = (e) => {
+                    e.stopPropagation();
+                    showCalendarOrderDetails(order, cellDate);
+                };
+                ordersContainer.appendChild(orderDot);
+            });
+            
+            dayCell.appendChild(ordersContainer);
+            dayCell.classList.add('has-orders');
+        }
+
+        dayCell.onclick = () => {
+            if (dayOrders.length > 0) {
+                showCalendarOrderDetails(dayOrders[0], cellDate);
+            }
+        };
+
+        grid.appendChild(dayCell);
+    }
+}
+
+function changeCalendarMonth(direction) {
+    currentCalendarDate.setMonth(currentCalendarDate.getMonth() + direction);
+    renderCalendar();
+}
+
+function showCalendarOrderDetails(order, date) {
+    const listContainer = document.getElementById('calendarOrdersList');
+    if (!listContainer) return;
+
+    const orderDate = new Date(date);
+    const formattedDate = orderDate.toLocaleDateString('en-US', { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+    });
+
+    const orderId = (order._id || order.id || '').toString();
+    const orderIdShort = orderId.substring(0, 8) || 'N/A';
+    const deliveryDetails = order.deliveryDetails || {};
+    const estimatedDelivery = deliveryDetails.estimatedDelivery || order.scheduledDate;
+
+    listContainer.innerHTML = `
+        <div class="calendar-order-card">
+            <h3>Order Details - ${formattedDate}</h3>
+            <div class="order-info">
+                <p><strong>Order ID:</strong> ${orderIdShort}</p>
+                <p><strong>Status:</strong> <span class="status-badge ${order.status}">${order.status.replace('_', ' ').toUpperCase()}</span></p>
+                <p><strong>Estimated Delivery:</strong> ${estimatedDelivery ? new Date(estimatedDelivery).toLocaleDateString() : 'Not set'}</p>
+                <p><strong>Total Amount:</strong> ₹${order.totalAmount?.toFixed(2) || '0.00'}</p>
+                <p><strong>Payment Method:</strong> ${order.paymentMethod?.toUpperCase() || 'N/A'}</p>
+                ${deliveryDetails.trackingNumber ? `<p><strong>Tracking:</strong> ${deliveryDetails.trackingNumber}</p>` : ''}
+            </div>
+            <div class="order-items">
+                <h4>Items:</h4>
+                <ul>
+                    ${order.items?.map(item => `
+                        <li>${item.productName || 'Product'} x ${item.quantity} - ₹${(item.total || 0).toFixed(2)}</li>
+                    `).join('') || '<li>No items</li>'}
+                </ul>
+            </div>
+            <button class="btn-primary" onclick="showSection('orders')">View All Orders</button>
+        </div>
+    `;
+}
+
+function checkDeliveryReminders() {
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+
+    calendarOrders.forEach(order => {
+        const deliveryDate = order.deliveryDetails?.estimatedDelivery || order.scheduledDate;
+        if (!deliveryDate) return;
+
+        const delivery = new Date(deliveryDate);
+        delivery.setHours(0, 0, 0, 0);
+        const today = new Date(now);
+        today.setHours(0, 0, 0, 0);
+
+        // Check if delivery is today
+        if (delivery.getTime() === today.getTime() && !order.reminderSent) {
+            showDeliveryNotification(order, 'today');
+        }
+        // Check if delivery is tomorrow
+        else if (delivery.getTime() === tomorrow.getTime() && !order.reminderSent) {
+            showDeliveryNotification(order, 'tomorrow');
+        }
+    });
+}
+
+function showDeliveryNotification(order, type) {
+    const orderId = (order._id || order.id || '').toString();
+    const orderIdShort = orderId.substring(0, 8) || 'N/A';
+    const message = type === 'today' 
+        ? `Your order #${orderIdShort} is arriving TODAY!`
+        : `Reminder: Your order #${orderIdShort} is arriving TOMORROW!`;
+    
+    showToast(message, 'info');
+    
+    // Show browser notification if permission granted
+    if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Delivery Reminder', {
+            body: message,
+            icon: '/favicon.ico'
+        });
+    }
+}
+
+// Request notification permission on page load
+if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+}
+
+window.changeCalendarMonth = changeCalendarMonth;
+window.loadCalendar = loadCalendar;
 
